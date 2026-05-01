@@ -1,8 +1,8 @@
-from evaluations.dna_eval import DNAEvalMetrics
-
-
 def initialize_eval_model(args, device, result_save_folder=""):
     if args.task == 'dna':
+        # Lazy import: dna_eval pulls in grelu, which we don't want to require
+        # for protein/antibody runs.
+        from evaluations.dna_eval import DNAEvalMetrics
         eval_models = DNAEvalMetrics(
             base_path=args.data_base_path,
             device=device,
