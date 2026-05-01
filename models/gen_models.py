@@ -28,9 +28,10 @@ def initialize_gen_model(args, device):
             pretrained=True if args.student_initialize_pretrain else False,  # random initialize params
         )
         tokenizer = None
-    elif args.task == 'protein':
+    elif args.task in ('protein', 'ab'):
+        # 'ab' (antibody CDR-only design) uses the same evodiff diffusion model
+        # as the protein task — only the sampler init and reward backend differ.
         from models.protein_gen_models import ProteinGenDiffusion
-        # initialize evodiff
 
         pre_model = ProteinGenDiffusion(args).to(device)
         old_model = ProteinGenDiffusion(args).to(device)
@@ -44,7 +45,7 @@ def initialize_gen_model(args, device):
             param.requires_grad = False
         tokenizer = None
     else:
-        raise NotImplementedError()
+        raise NotImplementedError(f"Unknown --task '{args.task}'")
     model_collections = {
         "pre_model": pre_model,
         "old_model": old_model,
