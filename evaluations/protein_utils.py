@@ -4,9 +4,10 @@ from io import StringIO
 from biotite.structure import AtomArray
 from biotite.structure.io.pdb import PDBFile
 
-import pyrosetta.rosetta.core.pose as pose
-from pyrosetta import pose_from_pdb
-from pyrosetta.rosetta.core.import_pose import pose_from_pdbstring
+# pyrosetta is license-gated and only used by pose_read_pdb. Importing it here
+# would break --task ab on boxes without a pyrosetta install. Lazy import inside
+# pose_read_pdb instead. See evaluations/protein_eval_bind_colabdesign.py for
+# the matching pattern.
 
 
 RESIDUE_TYPES_1to3 = {"A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS", "Q": "GLN", "E": "GLU", "G": "GLY",
@@ -29,6 +30,16 @@ def pose_read_pdb(pdb_file, filter_by_CA=True):
     """
     pdb file path, or, esmfold.infer_pdbs(sequence)[0]
     """
+    try:
+        import pyrosetta.rosetta.core.pose as pose
+        from pyrosetta import pose_from_pdb
+        from pyrosetta.rosetta.core.import_pose import pose_from_pdbstring
+    except ImportError as e:
+        raise ImportError(
+            "pyrosetta is required for pose_read_pdb but is not installed. "
+            "Get a license at https://www.pyrosetta.org/. (Not needed for --task ab.)"
+        ) from e
+
     assert isinstance(pdb_file, str)
     if pdb_file.endswith('.pdb'):
         pose_pdb = pose_from_pdb(pdb_file)
