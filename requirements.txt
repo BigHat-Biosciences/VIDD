@@ -1,0 +1,56 @@
+# Base VIDD requirements (diffusion student/teacher + reward orchestration).
+# Antibody (--task ab) extras live in requirements_ab.txt:
+#   pip install -r requirements.txt
+#   pip install -r requirements_ab.txt
+#
+# Python: 3.9 (evodiff requires <=3.9 per the upstream README).
+#
+# Not pip-installable / not in this list:
+# - pyrosetta — license-gated; only needed for --task protein. Imported lazily
+#   in evaluations/protein_eval_bind_colabdesign.py, so --task ab works without it.
+# - torch — install separately to match your CUDA build, e.g.:
+#       pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   (install.sh does this for you.)
+
+# Diffusion model / tokenizer
+evodiff @ git+https://github.com/microsoft/evodiff.git
+sequence-models
+fair-esm
+
+# Numerics / data
+numpy<2
+pandas
+scikit-learn
+biopython
+biotite
+blosum
+
+# Logging / progress / config
+wandb
+tqdm
+matplotlib
+seaborn
+omegaconf
+ml_collections
+dm-tree
+
+# Structure / metrics utilities used by evaluations/protein_eval.py and
+# evaluations/protein_utils.py.
+mdanalysis
+mdtraj
+tmtools
+pdb-tools
+
+# Misc storage / IO
+lmdb
+requests
+
+# Antibody numbering (CDR auto-detect, also pulled in by ProDifEvo's stack).
+anarci
+
+# Mixed-precision training utilities used by some loss configs.
+deepspeed
+
+# Optional: torch_geometric (used for some graph-protein utilities in
+# evaluations/protein_eval.py). Comment out if your CUDA build clashes.
+torch_geometric

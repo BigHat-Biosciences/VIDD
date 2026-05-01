@@ -1,5 +1,4 @@
 import sys, os
-import pyrosetta
 import jax
 import jax.numpy as jnp
 
@@ -9,7 +8,29 @@ from colabdesign.af.alphafold.common import residue_constants, protein
 from evaluations.protein_utils import *
 
 
-pyrosetta.init(options="-mute all")
+# pyrosetta is license-gated and not installable from public PyPI. The
+# antibody (--task ab) path never imports this module, so we defer the
+# pyrosetta import + init to ProteinEvalMetricsColabDesign.__init__ instead
+# of doing it at module load time. That way `from evaluations.eval_models
+# import initialize_eval_model` works on a box without pyrosetta.
+_PYROSETTA_INITED = False
+
+
+def _ensure_pyrosetta() -> None:
+    global _PYROSETTA_INITED
+    if _PYROSETTA_INITED:
+        return
+    try:
+        import pyrosetta
+    except ImportError as e:
+        raise ImportError(
+            "pyrosetta is required for --task protein but is not installed. "
+            "Get a license at https://www.pyrosetta.org/ and follow their "
+            "conda channel instructions. (For --task ab you don't need it.)"
+        ) from e
+    pyrosetta.init(options="-mute all")
+    _PYROSETTA_INITED = True
+
 
 _HYDROPHOBICS = {"VAL", "ILE", "LEU", "PHE", "MET", "TRP"}
 ALPHABET = 'ACDEFGHIKLMNPQRSTVWYX'
@@ -25,6 +46,7 @@ class ProteinEvalMetricsColabDesign:
             device,
             result_save_folder="",
     ):
+        _ensure_pyrosetta()
         self.gen_protein_folder = os.path.join(result_save_folder, 'saved_proteins')
         os.makedirs(self.gen_protein_folder, exist_ok=True)
         self.args = args
