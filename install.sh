@@ -22,12 +22,10 @@
 set -euo pipefail
 
 ENV_NAME="${ENV_NAME:-vidd}"
-# TODO: bump default to 3.11 to match ProDifEvo-Refinement (BH-README.md:39
-# uses python=3.11). VIDD's upstream README claims evodiff requires <=3.9, but
-# evodiff imports cleanly on 3.10/3.11 in practice and pinning to 3.9 forces a
-# `dm-haiku<0.0.14` constraint (haiku 0.0.14 uses PEP 604 union syntax). Verify
-# end-to-end on 3.11 before flipping the default and dropping the haiku pin.
-PYTHON_VERSION="${PYTHON_VERSION:-3.9}"
+# Default 3.11 matches ProDifEvo-Refinement. VIDD's upstream README claims
+# evodiff requires <=3.9, but evodiff imports cleanly on 3.11 and the rest of
+# the stack (jax 0.5.2, dm-haiku>=0.0.14) requires >=3.10.
+PYTHON_VERSION="${PYTHON_VERSION:-3.11}"
 CUDA="${CUDA:-cpu}"   # cpu | cu118 | cu121 | cu124 ...
 SKIP_AB="${SKIP_AB:-0}"
 

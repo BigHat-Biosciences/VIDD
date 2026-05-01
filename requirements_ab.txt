@@ -15,15 +15,10 @@
 # AF2 backend used by evaluations/ab_af2_reward.py.
 colabdesign @ git+https://github.com/sokrypton/ColabDesign.git@d024c4e
 
-# JAX is pulled in transitively by colabdesign at version 0.5.2. The default
-# wheel is CPU jaxlib; install.sh layers `jax[cuda12]==0.5.2` on top when
-# CUDA != cpu so GPU hosts get a CUDA-enabled jaxlib. Forward-compatible with
-# CUDA 12+ drivers including CUDA 13.
-
-# dm-haiku>=0.0.14 (Jan 2025) requires Python 3.10+ (uses PEP 604 union syntax
-# in haiku/_src/config.py). Pinning to <0.0.14 keeps Python 3.9 working. Bump
-# this constraint when install.sh moves to Python 3.10+.
-dm-haiku<0.0.14
+# JAX is pulled in transitively by colabdesign at version 0.5.2 (requires
+# Python >=3.10). The default wheel is CPU jaxlib; install.sh layers
+# `jax[cuda12]==0.5.2` on top when CUDA != cpu so GPU hosts get a CUDA-enabled
+# jaxlib. Forward-compatible with CUDA 12+ drivers including CUDA 13.
 
 # NanoBodyBuilder2 (provides one-shot binder template via NBB2).
 ImmuneBuilder
