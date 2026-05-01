@@ -18,6 +18,11 @@ def initialize_eval_model(args, device, result_save_folder=""):
                 device=device,
                 result_save_folder=result_save_folder,
             )
+    elif args.task == 'ab':
+        from evaluations.ab_af2_reward import AbAF2RewardCal
+        eval_models = AbAF2RewardCal(args, device, result_save_folder=result_save_folder)
+    else:
+        raise NotImplementedError(f"Unknown --task '{args.task}'")
 
     return eval_models
 

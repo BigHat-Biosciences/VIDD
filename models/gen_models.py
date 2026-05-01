@@ -66,9 +66,16 @@ def generate_xt_list(
         make_svdd=False,
         num_best_of_N=1,
         train_stage=False,
+        frozen_template_tokens=None,
+        cdr_indices=None,
 ):
     """
     generate a list of xt, roll in distribution
+
+    For task='ab', ``frozen_template_tokens`` is a 1-D LongTensor of length
+    ``seq_len`` containing framework token IDs at non-CDR positions and the
+    tokenizer mask_id at CDR positions. ``cdr_indices`` is the list of 0-based
+    CDR positions (the only positions the sampler is allowed to unmask).
     """
     if args.task == 'dna':
         if num_best_of_N > 1:
@@ -101,7 +108,25 @@ def generate_xt_list(
         # condt_list, len=128, each shape= [32,]
         # move_chance_t_list, len=128, each shape= [32,]
         # copy_flag_list, len=128, each shape= [32,200,1]
-    elif args.task == 'protein':
+    elif args.task in ('protein', 'ab'):
+        ab_mode = args.task == 'ab'
+        if ab_mode:
+            if frozen_template_tokens is None:
+                raise ValueError("task='ab' requires frozen_template_tokens (framework AA tokens with mask at CDR positions).")
+            if not cdr_indices:
+                raise ValueError("task='ab' requires cdr_indices (the only positions the sampler is allowed to unmask).")
+            template_row = frozen_template_tokens.to(device).to(torch.long)
+            if template_row.dim() != 1 or template_row.shape[0] != seq_len:
+                raise ValueError(
+                    f"frozen_template_tokens shape {tuple(template_row.shape)} != (seq_len={seq_len},)"
+                )
+            cdr_set = set(int(i) for i in cdr_indices)
+            num_unmask_steps = math.ceil(len(cdr_set) / unmask_K)
+        else:
+            template_row = None
+            cdr_set = None
+            num_unmask_steps = math.ceil(seq_len / unmask_K)
+
         final_reward_list = []
         final_samples_list = []
         final_last_x_list = []  # N, timestep, bs*len
@@ -116,19 +141,25 @@ def generate_xt_list(
             move_chance_t_list, move_chance_s_list = [], []
             copy_flag_list = []
 
-            # Start from mask
             mask = generative_model.tokenizer.mask_id
             pad = generative_model.tokenizer.pad_id
-            sample = torch.zeros((args.batch_size, seq_len)) + mask
-            sample = sample.to(torch.long)
-            sample = sample.to(device)  # bs * length
+
+            if ab_mode:
+                # Framework frozen, CDR positions masked. xt_to_xs only ever
+                # rewrites positions present in loc_set, and copy_flag is
+                # derived from (sample != mask_id) so framework tokens are
+                # preserved automatically across the reverse process.
+                sample = template_row.unsqueeze(0).expand(args.batch_size, -1).contiguous()
+                loc_set = [set(cdr_set) for _ in range(args.batch_size)]
+            else:
+                # Whole-sequence design: start from all-mask.
+                sample = (torch.zeros((args.batch_size, seq_len)) + mask).to(torch.long).to(device)
+                loc = np.arange(seq_len)
+                loc_set = [set(loc) for _ in range(args.batch_size)]
+
             timestep = torch.tensor([0] * args.batch_size).to(device)  # placeholder but not called in model
 
-            # Unmask 1 loc at a time randomly
-            loc = np.arange(seq_len)
-            loc_set = [set(loc) for i in range(args.batch_size)]  # Location set
-
-            for i in tqdm(range(math.ceil(seq_len / unmask_K)), desc="sequence generation", disable=train_stage):
+            for i in tqdm(range(num_unmask_steps), desc="sequence generation", disable=train_stage):
             # for i in range(args.total_num_steps):
                 if args.decode_alg == 'SVDDtw' or make_svdd:
                     _, sample_fake, loc_set_fake, copy_flag = generative_model.xt_to_xs_svdd(sample, timestep, loc_set, reward_model, unmask_K=unmask_K, num_candidate=args.SVDD_num_candidate)
@@ -184,7 +215,7 @@ def generate_xt_list(
         best_condt_list = final_condt_list[best_indices, bs_indices, :].permute(1,0)  # timestep, bs
         best_copy_flag_list = final_copy_flag_list[best_indices, bs_indices, :, :].permute(1,0,2)  # timestep, bs, len
 
-        total_T = math.ceil(seq_len / unmask_K)
+        total_T = num_unmask_steps
         best_move_chance_t_list = [[] for _ in range(total_T)]
         for bs_idx in range(args.batch_size):
             best_n = best_indices[bs_idx]

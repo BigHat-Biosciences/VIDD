@@ -1,0 +1,19 @@
+# Antibody (task='ab') extras for VIDD. Install on top of the base requirements:
+#   pip install -r requirements.txt
+#   pip install -r requirements_ab.txt
+#
+# Additionally, NanoBodyBuilder2 needs pdbfixer + openmm via conda, and ANARCI
+# needs HMMER. Suggested install:
+#   conda install -c conda-forge pdbfixer openmm
+#   conda install -c bioconda hmmer
+#
+# AF2 weights: download into $AF_PARAMS_DIR (default ~/.mber/af_params) per
+#   mber-open/download_weights.sh.
+# NBB2 weights: will be downloaded on first NanoBodyBuilder2() construction
+#   into $NBB2_WEIGHTS_DIR (default ~/.mber/nbb2_weights).
+
+# AF2 backend used by evaluations/ab_af2_reward.py.
+colabdesign @ git+https://github.com/sokrypton/ColabDesign.git@d024c4e
+
+# NanoBodyBuilder2 (provides one-shot binder template via NBB2).
+ImmuneBuilder

@@ -1,4 +1,6 @@
 import argparse
+import csv
+import time
 import wandb
 import numpy as np
 import torch
@@ -21,6 +23,59 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+# Token-id ordering used throughout VIDD's protein paths: indices 0-19 map to
+# the 20 standard AAs in alphabetical order. Matches ALPHABET in
+# evaluations/protein_eval_bind_colabdesign.py and ab_af2_reward.py, and the
+# 0:20 slicing in models/protein_gen_models.py:xt_to_xs.
+_AB_AA_ORDER = "ACDEFGHIKLMNPQRSTVWY"
+
+
+def _build_ab_template(args, generative_model, device):
+    """Build (frozen_template_tokens, cdr_indices_int) for task='ab'.
+
+    Framework positions get the AA token id; CDR positions get the tokenizer's
+    mask id so the sampler can fill them in.
+    """
+    if args.task != 'ab':
+        return None, None
+    seq = args.antibody_sequence
+    if not seq:
+        raise ValueError("--antibody_sequence is required when --task=ab.")
+    cdr = sorted(int(x) for x in args.cdr_indices.split(",") if x.strip())
+    if not cdr:
+        raise ValueError("--cdr_indices is required when --task=ab.")
+    if max(cdr) >= len(seq) or min(cdr) < 0:
+        raise ValueError(
+            f"--cdr_indices {cdr} out of range for antibody_sequence of length {len(seq)}."
+        )
+
+    mask_id = generative_model.tokenizer.mask_id
+    cdr_set = set(cdr)
+    tokens = torch.full((len(seq),), mask_id, dtype=torch.long)
+    for i, aa in enumerate(seq):
+        if i in cdr_set:
+            continue
+        if aa not in _AB_AA_ORDER:
+            raise ValueError(
+                f"Antibody framework contains non-standard AA '{aa}' at position {i}; "
+                f"expected one of {_AB_AA_ORDER}."
+            )
+        tokens[i] = _AB_AA_ORDER.index(aa)
+    return tokens.to(device), cdr
+
+
+def _ab_kwargs(args):
+    """Return the generate_xt_list kwargs that carry CDR-only template state.
+
+    Empty dict when not in ab mode, so existing 'protein' callers are unchanged.
+    """
+    tt = getattr(args, "_ab_template_tokens", None)
+    ci = getattr(args, "_ab_cdr_indices", None)
+    if tt is None:
+        return {}
+    return {"frozen_template_tokens": tt, "cdr_indices": ci}
 
 
 def read_fasta(fasta_file):
@@ -69,6 +124,18 @@ def run(args, rank=None):
     """initialize diffusion model & reward model"""
     model_collections = initialize_gen_model(args, device)
     pre_model, old_model, new_model = model_collections['pre_model'], model_collections['old_model'], model_collections['new_model']
+
+    # Antibody (CDR-only) setup: framework token tensor + CDR positions, plus
+    # gen_len override so all downstream length math uses the seed length.
+    if args.task == 'ab':
+        args.gen_len = len(args.antibody_sequence)
+        tmpl, cdr = _build_ab_template(args, pre_model, device)
+        args._ab_template_tokens = tmpl
+        args._ab_cdr_indices = cdr
+    else:
+        args._ab_template_tokens = None
+        args._ab_cdr_indices = None
+
     eval_models = initialize_eval_model(args=args, device=device, result_save_folder=result_save_folder)
 
     if args.only_test:
@@ -124,7 +191,35 @@ def run(args, rank=None):
     best_plddt_reward = float('-inf')
     best_rewards_eval, best_reward_std, best_diversity = float('-inf'), float('-inf'), float('-inf')
     best_model_path = os.path.join(save_folders_model, f'model_best.ckpt')
-    for epoch_num in tqdm(range(args.num_epochs), desc="training epochs"):
+
+    # Per-epoch timing CSV. Mirrors ProDifEvo-Refinement's evodiff/generate_antibody.py
+    # pattern: one row per epoch, columns include AF reward time + per-metric means.
+    timing_csv_path = os.path.join(result_save_folder, "timing_train.csv")
+    reward_metric_names = args.reward.split(",")
+    timing_header = (
+        ["epoch", "wall_seconds", "n_sequences", "sec_per_seq",
+         "reward_seconds", "af_calls", "mean_reward"]
+        + [f"{m}_mean" for m in reward_metric_names]
+    )
+    if not os.path.exists(timing_csv_path):
+        with open(timing_csv_path, "w", newline="") as f:
+            csv.writer(f).writerow(timing_header)
+
+    epoch_bar = tqdm(range(args.num_epochs), desc="training epochs")
+    for epoch_num in epoch_bar:
+        epoch_t0 = time.perf_counter()
+        n_seqs_before = (
+            eval_models._timings["n_sequences"]
+            if hasattr(eval_models, "_timings") else 0
+        )
+        reward_s_before = (
+            eval_models._timings["reward_seconds"]
+            if hasattr(eval_models, "_timings") else 0.0
+        )
+        n_calls_before = (
+            eval_models._timings["n_calls"]
+            if hasattr(eval_models, "_timings") else 0
+        )
         rewards, rewards_each_term = [], []
         diversity = []
         losses = []
@@ -149,6 +244,7 @@ def run(args, rank=None):
                         reward_model=eval_models,
                         num_best_of_N=args.best_of_N,
                         train_stage=True,
+                        **_ab_kwargs(args),
                     )
 
                 gkd_lmbda = args.gkd_lmbda
@@ -167,6 +263,7 @@ def run(args, rank=None):
                                 reward_model=eval_models,
                                 num_best_of_N=args.best_of_N,
                                 train_stage=True,
+                                **_ab_kwargs(args),
                             )
                         last_x_list, condt_list, conds_list, move_chance_t_list, move_chance_s_list, copy_flag_list = \
                             last_x_list_old, condt_list_old, conds_list_old, move_chance_t_list_old, move_chance_s_list_old, copy_flag_list_old
@@ -189,6 +286,7 @@ def run(args, rank=None):
                             reward_model=eval_models,
                             num_best_of_N=args.best_of_N,
                             train_stage=True,
+                            **_ab_kwargs(args),
                         )
                     # classifier free fine-tuning
                     last_x_list, condt_list, conds_list, move_chance_t_list, move_chance_s_list, copy_flag_list = \
@@ -358,6 +456,39 @@ def run(args, rank=None):
         last_model_path = os.path.join(save_folders_model, f'last.ckpt')
         torch.save(checkpoint, last_model_path)
 
+        # ---- per-epoch timing emission ----
+        epoch_wall = time.perf_counter() - epoch_t0
+        if hasattr(eval_models, "_timings"):
+            n_seqs_iter = eval_models._timings["n_sequences"] - n_seqs_before
+            reward_seconds_iter = eval_models._timings["reward_seconds"] - reward_s_before
+            af_calls_iter = eval_models._timings["n_calls"] - n_calls_before
+        else:
+            n_seqs_iter = args.batch_size * args.num_accum_steps
+            reward_seconds_iter = 0.0
+            af_calls_iter = 0
+        sec_per_seq = epoch_wall / max(n_seqs_iter, 1)
+
+        row = [
+            epoch_num,
+            f"{epoch_wall:.3f}",
+            n_seqs_iter,
+            f"{sec_per_seq:.3f}",
+            f"{reward_seconds_iter:.3f}",
+            af_calls_iter,
+            f"{rewards_eval:.4f}",
+        ]
+        for m in reward_metric_names:
+            row.append(f"{cur_result_dict.get(f'{m}_mean_reward', float('nan')):.4f}")
+        with open(timing_csv_path, "a", newline="") as f:
+            csv.writer(f).writerow(row)
+
+        postfix = {"agg": f"{rewards_eval:.3f}", "s/seq": f"{sec_per_seq:.2f}"}
+        for m in reward_metric_names:
+            v = cur_result_dict.get(f"{m}_mean_reward")
+            if v is not None:
+                postfix[m] = f"{float(v):.3f}"
+        epoch_bar.set_postfix(postfix)
+
     wandb.log({
         "final_mean_reward": best_rewards_eval,
         "final_std_reward": best_reward_std,
@@ -379,6 +510,10 @@ def svdd_test(
         checkpoint = torch.load(best_model_path, map_location=device)
         final_model.load_state_dict(checkpoint['model'])
 
+    if args.task == 'ab' and getattr(args, "_ab_template_tokens", None) is None:
+        args.gen_len = len(args.antibody_sequence)
+        args._ab_template_tokens, args._ab_cdr_indices = _build_ab_template(args, final_model, device)
+
     final_sample_new = generate_xt_list(
             args=args,
             generative_model=final_model,
@@ -387,6 +522,7 @@ def svdd_test(
             unmask_K=args.unmask_K,
             reward_model=eval_models,
             make_svdd=True,
+            **_ab_kwargs(args),
     )[0]
     final_reward_list = eval_models.reward_metrics(S_sp=final_sample_new, save_pdb=True, save_pdb_name="p")  # [bs]
 
@@ -412,6 +548,10 @@ def best_of_n_test(
         checkpoint = torch.load(best_model_path, map_location=device)
         final_model.load_state_dict(checkpoint['model'])
 
+    if args.task == 'ab' and getattr(args, "_ab_template_tokens", None) is None:
+        args.gen_len = len(args.antibody_sequence)
+        args._ab_template_tokens, args._ab_cdr_indices = _build_ab_template(args, final_model, device)
+
     final_sample_new = generate_xt_list(
             args=args,
             generative_model=final_model,
@@ -420,6 +560,7 @@ def best_of_n_test(
             unmask_K=args.unmask_K,
             reward_model=eval_models,
             num_best_of_N=num_best_of_N,
+            **_ab_kwargs(args),
     )[0]
     final_reward_list, final_each_reward_list = eval_models.reward_metrics(S_sp=final_sample_new, save_pdb=True, save_pdb_name=f"best_of_{args.best_of_N}", return_all_reward_term=True)  # [bs]
 
@@ -482,9 +623,29 @@ if __name__ == '__main__':
     parser.add_argument('--save_every_n_epochs', type=int, default=50)
 
     # task
-    parser.add_argument('--task', type=str, default="protein", choices=['protein'])
+    parser.add_argument('--task', type=str, default="protein", choices=['protein', 'ab'])
     parser.add_argument('--reward', type=str, default="")
     parser.add_argument('--reward_weight', type=str, default='1')
+
+    # antibody (task='ab') params
+    parser.add_argument('--antibody_sequence', type=str, default="",
+                        help="Seed VHH sequence. Framework positions are frozen; CDR positions are redesigned. "
+                             "Length sets gen_len when task='ab'.")
+    parser.add_argument('--cdr_indices', type=str, default="",
+                        help="Comma-separated 0-based positions of CDR residues in antibody_sequence.")
+    parser.add_argument('--antigen_pdb', type=str, default="",
+                        help="Path to antigen PDB; required when 'iptm' is in --reward.")
+    parser.add_argument('--antigen_chain', type=str, default="A")
+    parser.add_argument('--use_template', action='store_true',
+                        help="One-shot NBB2-fold the seed antibody and pass it to AF2 as a binder template.")
+    parser.add_argument('--nbb2_weights_dir', type=str, default="",
+                        help="NanoBodyBuilder2 weights dir. Defaults to $NBB2_WEIGHTS_DIR or ~/.mber/nbb2_weights.")
+    parser.add_argument('--af_gpu_ids', type=str, default="",
+                        help="Comma-separated JAX device indices for AF2 workers (e.g. '1,2,3'). "
+                             "Empty/single → serial single-GPU path.")
+    parser.add_argument('--af_params_dir', type=str, default="",
+                        help="AlphaFold2 params dir. Defaults to $AF_PARAMS_DIR or ~/.mber/af_params.")
+    parser.add_argument('--num_recycles', type=int, default=3)
 
     # protein task params
     parser.add_argument('--define_ss', type=str, default="b", choices=['a', 'b'])
