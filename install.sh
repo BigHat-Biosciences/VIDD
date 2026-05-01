@@ -67,22 +67,23 @@ else
     pip install torch --index-url "https://download.pytorch.org/whl/$CUDA"
 fi
 
-# --- base requirements -----------------------------------------------------
-echo "[install] pip installing base requirements"
-pip install -r "$REPO_DIR/requirements.txt"
-
-# --- antibody extras -------------------------------------------------------
+# --- requirements (single resolver pass) ----------------------------------
+# CRITICAL: install base + antibody extras in ONE pip invocation so the
+# resolver sees all constraints at once. Splitting the call lets transitive
+# deps from requirements_ab.txt (chex, optax, numpy) silently violate
+# evodiff's numpy<2 because evodiff is already "satisfied" on the second pass.
 if [[ "$SKIP_AB" == "0" ]]; then
-    echo "[install] pip installing antibody extras (AF2 + NBB2)"
-    pip install -r "$REPO_DIR/requirements_ab.txt"
-    # requirements_ab.txt pins jax==0.5.2 (CPU jaxlib by default). For CUDA
-    # hosts, layer the cuda12 jaxlib on top — same version pin, GPU wheel.
+    echo "[install] pip installing base + antibody requirements (single resolve)"
+    pip install -r "$REPO_DIR/requirements.txt" -r "$REPO_DIR/requirements_ab.txt"
+    # Layer the cuda12 jaxlib on top of jax==0.5.2 for GPU hosts. This only
+    # swaps jaxlib's wheel — chex/optax/numpy/etc. stay put.
     if [[ "$CUDA" != "cpu" ]]; then
         echo "[install] pip installing jax[cuda12] (GPU jaxlib for $CUDA host)"
-        pip install --upgrade 'jax[cuda12]==0.5.2'
+        pip install 'jax[cuda12]==0.5.2'
     fi
 else
-    echo "[install] SKIP_AB=1 — skipping AF2 / NBB2 install"
+    echo "[install] SKIP_AB=1 — pip installing base requirements only"
+    pip install -r "$REPO_DIR/requirements.txt"
 fi
 
 cat <<EOF

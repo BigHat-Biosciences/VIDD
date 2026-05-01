@@ -16,6 +16,9 @@
 evodiff @ git+https://github.com/microsoft/evodiff.git
 sequence-models
 fair-esm
+# evodiff/pretrained.py imports pkg_resources, which is part of setuptools.
+# On Python 3.11 setuptools isn't always pulled in transitively, so pin here.
+setuptools<81
 
 # Numerics / data
 numpy<2
