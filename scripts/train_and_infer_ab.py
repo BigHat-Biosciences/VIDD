@@ -338,7 +338,13 @@ def main() -> None:
     infer_totals = {"wall_seconds": 0.0, "n_sequences": 0, "reward_seconds": 0.0, "af_calls": 0}
     if not args.skip_inference:
         print("[orchestrator] === Phase 2: inference (best-of-N) ===")
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Pin torch to cuda:0 explicitly; JAX shifts current_device when
+        # dispatching AF2 workers to cuda:N. See finetune_reward_protein.run().
+        if torch.cuda.is_available():
+            torch.cuda.set_device(0)
+            device = torch.device("cuda:0")
+        else:
+            device = torch.device("cpu")
         infer_totals = _run_inference(args, result_save_folder, device)
     else:
         print("[orchestrator] --skip_inference set; skipping inference phase.")

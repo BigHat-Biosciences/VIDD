@@ -119,7 +119,17 @@ def run(args, rank=None):
     os.makedirs(save_folders_model, exist_ok=True)
     args.result_save_folder = result_save_folder
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Pin torch to cuda:0 explicitly. JAX (used by the AF2 reward backend) calls
+    # cudaSetDevice when entering `jax.default_device(cuda:N)`, which shifts
+    # torch's current CUDA device for the whole process. Without an explicit
+    # cuda:0 pin, generic `torch.device("cuda")` resolves to whatever device
+    # JAX last touched, and tensors stacked across iterations end up on a mix
+    # of devices (cuda:0 vs cuda:3 for af_gpu_ids=1,2,3).
+    if torch.cuda.is_available():
+        torch.cuda.set_device(0)
+        device = torch.device("cuda:0")
+    else:
+        device = torch.device("cpu")
 
     """initialize diffusion model & reward model"""
     model_collections = initialize_gen_model(args, device)

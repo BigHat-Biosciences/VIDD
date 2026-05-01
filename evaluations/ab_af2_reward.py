@@ -718,6 +718,16 @@ class AbAF2RewardCal:
             self._timings["reward_seconds"] += time.perf_counter() - t0
             self._timings["n_sequences"] += n_seqs_this_call
             self._timings["n_calls"] += 1
+            # JAX's cudaSetDevice (from `jax.default_device(cuda:N)` in the
+            # multi-GPU workers) shifts torch's current CUDA device for the
+            # whole process. Reset to cuda:0 so subsequent torch ops in the
+            # diffusion driver land on the same device as the model weights.
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.set_device(0)
+            except ImportError:
+                pass
 
     def calc_diversity(self, S_sp):
         return set_diversity(S_sp.detach().cpu().numpy())
