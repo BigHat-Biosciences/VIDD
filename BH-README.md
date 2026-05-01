@@ -40,7 +40,10 @@ CUDA=cu121 bash install.sh
 
 Knobs:
 - `ENV_NAME=foo` — override conda env name
-- `PYTHON_VERSION=3.9` — must be ≤ 3.9 (evodiff requirement)
+- `PYTHON_VERSION=3.9` — current default. Upstream VIDD README claims evodiff
+  needs ≤ 3.9, but ProDifEvo-Refinement runs evodiff on 3.11; **TODO**: verify
+  the full antibody pipeline on 3.11 and flip the default. Pinning to 3.9
+  forces `dm-haiku<0.0.14` (haiku ≥ 0.0.14 uses PEP 604 union syntax).
 - `CUDA=cpu | cu118 | cu121 | cu124` — pytorch wheel index
 - `SKIP_AB=1` — skip AF2 / NBB2 install
 

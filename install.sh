@@ -22,6 +22,11 @@
 set -euo pipefail
 
 ENV_NAME="${ENV_NAME:-vidd}"
+# TODO: bump default to 3.11 to match ProDifEvo-Refinement (BH-README.md:39
+# uses python=3.11). VIDD's upstream README claims evodiff requires <=3.9, but
+# evodiff imports cleanly on 3.10/3.11 in practice and pinning to 3.9 forces a
+# `dm-haiku<0.0.14` constraint (haiku 0.0.14 uses PEP 604 union syntax). Verify
+# end-to-end on 3.11 before flipping the default and dropping the haiku pin.
 PYTHON_VERSION="${PYTHON_VERSION:-3.9}"
 CUDA="${CUDA:-cpu}"   # cpu | cu118 | cu121 | cu124 ...
 SKIP_AB="${SKIP_AB:-0}"
@@ -72,6 +77,12 @@ pip install -r "$REPO_DIR/requirements.txt"
 if [[ "$SKIP_AB" == "0" ]]; then
     echo "[install] pip installing antibody extras (AF2 + NBB2)"
     pip install -r "$REPO_DIR/requirements_ab.txt"
+    # requirements_ab.txt pins jax==0.5.2 (CPU jaxlib by default). For CUDA
+    # hosts, layer the cuda12 jaxlib on top — same version pin, GPU wheel.
+    if [[ "$CUDA" != "cpu" ]]; then
+        echo "[install] pip installing jax[cuda12] (GPU jaxlib for $CUDA host)"
+        pip install --upgrade 'jax[cuda12]==0.5.2'
+    fi
 else
     echo "[install] SKIP_AB=1 — skipping AF2 / NBB2 install"
 fi
