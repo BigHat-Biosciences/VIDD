@@ -79,20 +79,13 @@ first time `NanoBodyBuilder2()` is constructed. No manual step needed.
 
 ```bash
 conda activate vidd
-python scripts/train_and_infer_ab.py \
-    --task ab \
-    --wandb_mode disabled \
-    --wandb_name smoke \
-    --antibody_sequence EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDRLSITIRPRYYGLDVWGQGTLVTVSS \
-    --cdr_indices 99,100,101,102,103,104,105,106,107,108,109,110,111 \
-    --antigen_pdb target_proteins/PDL1.pdb \
-    --antigen_chain A \
-    --reward iptm,plddt,cdr_plddt \
-    --reward_weight 1,0.1,0.1 \
-    --batch_size 4 --num_epochs 2 --best_of_N 2 --inference_best_of_N 4
+bash scripts/smoke_ab.sh
 ```
 
-Confirms the train + inference loop runs end-to-end and writes timing files.
+Runs 2 epochs, batch 4, best-of-N 2 on the anti-PDL1 nanobody seed without
+NBB2 templating. Confirms the train + inference loop runs end-to-end and
+writes `timing_train.csv`, `timing_inference.csv`, and `timing_summary.txt`.
+Edit the script if you want to point at a different antigen / seed / CDRs.
 
 ### Full run (4× GPU, NBB2 template, anti-PDL1)
 
