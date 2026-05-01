@@ -15,10 +15,14 @@
 # AF2 backend used by evaluations/ab_af2_reward.py.
 colabdesign @ git+https://github.com/sokrypton/ColabDesign.git@d024c4e
 
-# JAX is pulled in transitively by colabdesign at version 0.5.2 (requires
-# Python >=3.10). The default wheel is CPU jaxlib; install.sh layers
-# `jax[cuda12]==0.5.2` on top when CUDA != cpu so GPU hosts get a CUDA-enabled
-# jaxlib. Forward-compatible with CUDA 12+ drivers including CUDA 13.
+# JAX must be pinned here (not just upgraded later) so pip's resolver picks
+# chex / optax / numpy versions compatible with jax 0.5.2 on the first pass.
+# Without this pin, pip installs jax 0.10.0 + chex>=0.1.90 + optax>=0.2.8 +
+# numpy>=2, then install.sh's GPU upgrade downgrades jax and strands the rest.
+# Default wheel is CPU jaxlib; install.sh layers `jax[cuda12]==0.5.2` on top
+# when CUDA != cpu. Forward-compatible with CUDA 12+ drivers (incl. CUDA 13).
+jax==0.5.2
+flax<0.10.0
 
 # NanoBodyBuilder2 (provides one-shot binder template via NBB2).
 ImmuneBuilder
