@@ -20,9 +20,14 @@ export NBB2_WEIGHTS_DIR="${NBB2_WEIGHTS_DIR:-$HOME/.mber/nbb2_weights}"
 # Anti-PDL1 nanobody seed sequence (matches ProDifEvo-Refinement/run_ab_binding.sh).
 ANTIBODY_SEQUENCE="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDRLSITIRPRYYGLDVWGQGTLVTVSS"
 
-# CDR-H3 positions (0-based) for the seed above. Override on the command line
-# if you want to design CDR-H1/H2 too.
-CDR_INDICES="${CDR_INDICES:-99,100,101,102,103,104,105,106,107,108,109,110,111}"
+# All three CDR positions (0-based) for the seed above. Approximate Kabat-style
+# ranges for this VH framework:
+#   CDR-H1 (positions 26-34, 9 res):  G F T F S S Y A M
+#   CDR-H2 (positions 50-58, 9 res):  I S G S G G S T Y
+#   CDR-H3 (positions 99-111, 13 res): R L S I T I R P R Y Y G L
+# Total: 31 designed positions out of 125. Override CDR_INDICES if you want
+# H3-only (use 99..111) or to tune the ranges per ANARCI/IMGT preference.
+CDR_INDICES="${CDR_INDICES:-26,27,28,29,30,31,32,33,34,50,51,52,53,54,55,56,57,58,99,100,101,102,103,104,105,106,107,108,109,110,111}"
 
 ANTIGEN_PDB="${ANTIGEN_PDB:-target_proteins/PDL1.pdb}"
 ANTIGEN_CHAIN="${ANTIGEN_CHAIN:-A}"
@@ -39,10 +44,11 @@ python "$(dirname "$0")/train_and_infer_ab.py" \
     --reward iptm,plddt,cdr_plddt \
     --reward_weight 1,0.1,0.1 \
     --batch_size 16 \
+    --inference_batch_size 400 \
     --unmask_K 4 \
     --num_epochs 50 \
     --best_of_N 4 \
-    --inference_best_of_N 32 \
+    --inference_best_of_N 4 \
     --learning_rate 1e-5 \
     --target_update_interval 20 \
     --gkd_lmbda 0.8 \

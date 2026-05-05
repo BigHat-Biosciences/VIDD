@@ -136,6 +136,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     # orchestrator-only flags
     p.add_argument('--inference_best_of_N', type=int, default=0,
                    help="best_of_N for the inference phase. 0 → reuse --best_of_N.")
+    p.add_argument('--inference_batch_size', type=int, default=0,
+                   help="Diffusion batch size for the inference phase (= number of "
+                        "final binders produced). 0 → reuse --batch_size.")
     p.add_argument('--skip_train', action='store_true',
                    help="Run only the inference phase against --test_model_path.")
     p.add_argument('--skip_inference', action='store_true',
@@ -190,14 +193,24 @@ def _run_inference(args, result_save_folder: str, device: torch.device) -> dict:
     n_calls_before = eval_models._timings["n_calls"]
     t0 = time.perf_counter()
 
-    with torch.no_grad():
-        result_dict = best_of_n_test(
-            eval_models=eval_models,
-            args=args,
-            device=device,
-            num_best_of_N=n_best,
-            best_model_path=best_ckpt,
-        )
+    # Override batch_size for the inference phase if --inference_batch_size set.
+    # The diffusion model reads args.batch_size, and best_of_n_test produces
+    # one final binder per batch slot, so this controls the final binder count.
+    saved_batch_size = args.batch_size
+    if args.inference_batch_size:
+        args.batch_size = args.inference_batch_size
+
+    try:
+        with torch.no_grad():
+            result_dict = best_of_n_test(
+                eval_models=eval_models,
+                args=args,
+                device=device,
+                num_best_of_N=n_best,
+                best_model_path=best_ckpt,
+            )
+    finally:
+        args.batch_size = saved_batch_size
 
     wall = time.perf_counter() - t0
     n_seqs_iter = eval_models._timings["n_sequences"] - n_seqs_before
