@@ -87,23 +87,35 @@ NBB2 templating. Confirms the train + inference loop runs end-to-end and
 writes `timing_train.csv`, `timing_inference.csv`, and `timing_summary.txt`.
 Edit the script if you want to point at a different antigen / seed / CDRs.
 
-### Full run (4× GPU, NBB2 template, anti-PDL1)
+### Full run (4× GPU, NBB2 template)
 
 ```bash
-bash scripts/train_and_infer_ab.sh
+bash scripts/train_and_infer_ab.sh                  # default target: PDL1
+TARGET=bhrf1 bash scripts/train_and_infer_ab.sh     # or BHRF1, IL3, IL20
 ```
 
 Defaults to:
 - `CUDA_VISIBLE_DEVICES=0,1,2,3`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`
 - GPU 0 → torch (diffusion student/old/pre + NBB2)
 - GPU 1,2,3 → AF2 prediction workers (`--af_gpu_ids 1,2,3`)
-- Anti-PDL1 nanobody seed; CDR-H3 indices 99–111
+- Anti-PDL1 nanobody seed; all 3 CDRs designed (positions 26-34, 50-58, 99-111)
+- 16-batch training, 400 final binders generated at inference
 
-Override anything via env vars or by editing the script:
+Available targets in `target_proteins/`: `PDL1`, `IFNAR2`, `BHRF1`, `IL3`, `IL20`.
+Selected via case-insensitive `TARGET=...`; the script maps that to
+`target_proteins/<TARGET>.pdb`, the result-folder name, and the wandb run name.
+
+Other override env vars:
+- `TARGET=il3` — pick a different antigen
+- `ANTIGEN_PDB=path/to/x.pdb` — point at a custom antigen PDB (overrides TARGET)
+- `BIND_TARGET=foo` / `WANDB_NAME=foo` — override the output folder / run name
 - `CDR_INDICES=99,100,...` — swap the CDR positions
-- `ANTIGEN_PDB=path/to/x.pdb` — swap the antigen
 - The full VIDD argparse is forwarded; pass any flag through `python
   scripts/train_and_infer_ab.py ...` directly if you want finer control.
+
+Note: the default seed sequence is an anti-PDL1 nanobody. For targets where you
+have a known binder, swap `ANTIBODY_SEQUENCE` to that scaffold so NBB2's
+template-fold matches the framework you actually want to design from.
 
 ### CLI flags (antibody-specific)
 

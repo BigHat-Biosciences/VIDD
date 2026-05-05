@@ -29,14 +29,30 @@ ANTIBODY_SEQUENCE="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYA
 # H3-only (use 99..111) or to tune the ranges per ANARCI/IMGT preference.
 CDR_INDICES="${CDR_INDICES:-26,27,28,29,30,31,32,33,34,50,51,52,53,54,55,56,57,58,99,100,101,102,103,104,105,106,107,108,109,110,111}"
 
-ANTIGEN_PDB="${ANTIGEN_PDB:-target_proteins/PDL1.pdb}"
+# Target selection. Override with TARGET=pdl1|bhrf1|il3|il20 (case-insensitive),
+# or set ANTIGEN_PDB / BIND_TARGET directly to use a custom PDB.
+#   TARGET=bhrf1 bash scripts/train_and_infer_ab.sh
+TARGET="${TARGET:-pdl1}"
+TARGET_UPPER="$(echo "$TARGET" | tr '[:lower:]' '[:upper:]')"
+TARGET_LOWER="$(echo "$TARGET" | tr '[:upper:]' '[:lower:]')"
+
+ANTIGEN_PDB="${ANTIGEN_PDB:-target_proteins/${TARGET_UPPER}.pdb}"
 ANTIGEN_CHAIN="${ANTIGEN_CHAIN:-A}"
+BIND_TARGET="${BIND_TARGET:-${TARGET_UPPER}}"
+WANDB_NAME="${WANDB_NAME:-ab_${TARGET_LOWER}_train_then_infer}"
+
+if [[ ! -f "$ANTIGEN_PDB" ]]; then
+    echo "ERROR: antigen PDB not found at $ANTIGEN_PDB" >&2
+    echo "       (TARGET=$TARGET, expected target_proteins/${TARGET_UPPER}.pdb)" >&2
+    exit 1
+fi
 
 python "$(dirname "$0")/train_and_infer_ab.py" \
     --task ab \
     --wandb_mode disabled \
     --wandb_group ab_distillation \
-    --wandb_name ab_pdl1_train_then_infer \
+    --wandb_name "$WANDB_NAME" \
+    --bind_target "$BIND_TARGET" \
     --antibody_sequence "$ANTIBODY_SEQUENCE" \
     --cdr_indices "$CDR_INDICES" \
     --antigen_pdb "$ANTIGEN_PDB" \
