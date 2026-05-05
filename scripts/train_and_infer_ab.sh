@@ -17,17 +17,24 @@ export AF_PARAMS_DIR="${AF_PARAMS_DIR:-$HOME/.mber/af_params}"
 # NBB2 weights for the one-shot template fold.
 export NBB2_WEIGHTS_DIR="${NBB2_WEIGHTS_DIR:-$HOME/.mber/nbb2_weights}"
 
-# Anti-PDL1 nanobody seed sequence (matches ProDifEvo-Refinement/run_ab_binding.sh).
-ANTIBODY_SEQUENCE="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVSAISGSGGSTYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDRLSITIRPRYYGLDVWGQGTLVTVSS"
+# VHH (nanobody) seed matching bonobo's framework layout
+# (run_bonobo_af_multigpu.py:256 / run_vsd_bonobo.py:280-285):
+#   FR1 (26):  EVQLVESGGGLVQPGGSLRLSCAASG
+#   CDR1 (9):  GFTFSSYAM      <- filler; masked at AF2 template via rm_binder
+#   FR2 (12):  WFRQAPGKEREF   <- canonical VHH FR2 (note WFRQ + REF hallmarks)
+#   CDR2 (11): AISGSGGSTYY    <- filler
+#   FR3 (37):  NADSVKGRFTISRDNAKNTLYLQMNSLRAEDTAVYYC
+#   CDR3 (12): ARLSITIRPYYG   <- filler
+#   FR4 (11):  WGQGTLVTVSS
+# Total length: 118 (matches bonobo).
+ANTIBODY_SEQUENCE="EVQLVESGGGLVQPGGSLRLSCAASGGFTFSSYAMWFRQAPGKEREFAISGSGGSTYYNADSVKGRFTISRDNAKNTLYLQMNSLRAEDTAVYYCARLSITIRPYYGWGQGTLVTVSS"
 
-# All three CDR positions (0-based) for the seed above. Approximate Kabat-style
-# ranges for this VH framework:
-#   CDR-H1 (positions 26-34, 9 res):  G F T F S S Y A M
-#   CDR-H2 (positions 50-58, 9 res):  I S G S G G S T Y
-#   CDR-H3 (positions 99-111, 13 res): R L S I T I R P R Y Y G L
-# Total: 31 designed positions out of 125. Override CDR_INDICES if you want
-# H3-only (use 99..111) or to tune the ranges per ANARCI/IMGT preference.
-CDR_INDICES="${CDR_INDICES:-26,27,28,29,30,31,32,33,34,50,51,52,53,54,55,56,57,58,99,100,101,102,103,104,105,106,107,108,109,110,111}"
+# CDR positions (0-based) matching the bonobo-aligned seed above:
+#   CDR1: 26..34   (9)
+#   CDR2: 47..57   (11)
+#   CDR3: 95..106  (12)
+# Total: 32 designed positions out of 118.
+CDR_INDICES="${CDR_INDICES:-26,27,28,29,30,31,32,33,34,47,48,49,50,51,52,53,54,55,56,57,95,96,97,98,99,100,101,102,103,104,105,106}"
 
 # Target selection. Override with TARGET=pdl1|bhrf1|il3|il20 (case-insensitive),
 # or set ANTIGEN_PDB / BIND_TARGET directly to use a custom PDB.
