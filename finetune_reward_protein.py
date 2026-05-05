@@ -204,6 +204,11 @@ def run(args, rank=None):
 
     # Per-epoch timing CSV. Mirrors ProDifEvo-Refinement's evodiff/generate_antibody.py
     # pattern: one row per epoch, columns include AF reward time + per-metric means.
+    # Truncate (not append) at run start so rerunning against the same output
+    # dir produces a CSV that reflects ONLY this invocation. Previously, the
+    # `if not os.path.exists` guard let stale rows from prior runs accumulate,
+    # which made _read_train_totals double-count and produced impossible
+    # train_wall > run_wall in the summary.
     timing_csv_path = os.path.join(result_save_folder, "timing_train.csv")
     reward_metric_names = args.reward.split(",")
     timing_header = (
@@ -211,9 +216,8 @@ def run(args, rank=None):
          "reward_seconds", "af_calls", "mean_reward"]
         + [f"{m}_mean" for m in reward_metric_names]
     )
-    if not os.path.exists(timing_csv_path):
-        with open(timing_csv_path, "w", newline="") as f:
-            csv.writer(f).writerow(timing_header)
+    with open(timing_csv_path, "w", newline="") as f:
+        csv.writer(f).writerow(timing_header)
 
     epoch_bar = tqdm(range(args.num_epochs), desc="training epochs")
     for epoch_num in epoch_bar:
