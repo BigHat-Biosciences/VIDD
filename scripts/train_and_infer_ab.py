@@ -326,6 +326,14 @@ def main() -> None:
     if not args.antibody_sequence or not args.cdr_indices:
         raise SystemExit("--antibody_sequence and --cdr_indices are required.")
 
+    # Stamp a launch timestamp into wandb_name so reruns with the same nominal
+    # name (e.g. 'ab_pdl1_train_then_infer') don't share an output directory.
+    # wandb_name plumbs through both phases (train + inference) so they agree
+    # on result_save_folder automatically. Format is filesystem/scp-safe:
+    # YYYY-MM-DD_HHMMSS, sortable and no colons.
+    launch_ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    args.wandb_name = f"{args.wandb_name}_{launch_ts}"
+
     result_save_folder = _resolve_result_save_folder(args)
     os.makedirs(os.path.join(result_save_folder, "models"), exist_ok=True)
     print(f"[orchestrator] result_save_folder = {result_save_folder}")
