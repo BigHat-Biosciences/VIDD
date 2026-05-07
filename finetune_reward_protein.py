@@ -600,6 +600,20 @@ def best_of_n_test(
         result_dict[f"{each_reward_name}_mean_reward"] = final_each_reward_list_mean[r_idx]
         result_dict[f"{each_reward_name}_std_reward"] = final_each_reward_list_std[r_idx]
 
+    # Per-sample data for downstream output.csv (sequence + per-reward + diversity).
+    # ALPHABET matches evaluations/ab_af2_reward.py; index 20 is the rare 'X' slot
+    # the diffusion model can emit for non-standard / unfilled positions.
+    _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
+    sample_np = final_sample_new.detach().cpu().numpy()
+    sequences = [
+        "".join(_ALPHABET[t] if 0 <= t < len(_ALPHABET) else "X" for t in row)
+        for row in sample_np
+    ]
+    result_dict["sequences"] = sequences
+    result_dict["per_sample_rewards"] = final_each_reward_list
+    result_dict["per_sample_total_reward"] = np.asarray(final_reward_list)
+    result_dict["diversity"] = cur_diversity
+
     return result_dict
 
 
