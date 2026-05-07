@@ -1,0 +1,43 @@
+# torch requirements
+torch>=2.7.1
+torchvision
+torchaudio
+transformers
+
+# colabdesign (as of 2025-08-06)
+colabdesign @ git+https://github.com/sokrypton/ColabDesign.git@d024c4e
+
+# jax requirements
+jax[cuda12]==0.5.2
+flax<0.10.0
+
+# ablang2
+ablang2
+
+# ImmuneBuilder (openmm, pdbfixer, anarci in conda env)
+ImmuneBuilder
+
+# extra MD requirements
+freesasa
+mdtraj
+# NOTE: pdbfixer is installed via conda (environment.yml), not pip.
+# Installing it via pip can cause version conflicts with the conda OpenMM.
+
+# pdb and bio requirements
+biopython
+biotite
+# fastpdb
+
+# general requirements
+logomaker
+matplotlib
+numpy<2
+pandas
+pyarrow
+boto3
+
+# jupyter requirements
+ipywidgets
+ipykernel
+nbconvert
+ipython

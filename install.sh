@@ -82,6 +82,11 @@ if [[ "$SKIP_AB" == "0" ]]; then
         echo "[install] pip installing jax[cuda12] (GPU jaxlib for $CUDA host)"
         pip install 'jax[cuda12]==0.5.2'
     fi
+    # Vendored mber-open (subclasses colabdesign with the string-position
+    # rm_binder/rm_binder_seq/rm_binder_sc parsing that bonobo + RERD rely on).
+    # Required for the AF2 reward backend in evaluations/ab_af2_reward.py.
+    echo "[install] pip installing mber-open (editable, vendored at mber-open/)"
+    pip install -e "$REPO_DIR/mber-open"
 else
     echo "[install] SKIP_AB=1 — pip installing base requirements only"
     pip install -r "$REPO_DIR/requirements.txt"
