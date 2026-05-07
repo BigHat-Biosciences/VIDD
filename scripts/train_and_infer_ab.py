@@ -76,7 +76,8 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument('--batch_size', type=int, default=32)
     p.add_argument('--student_initialize_pretrain', type=bool, default=True)
 
-    p.add_argument('--seed', type=int, default=44)
+    p.add_argument('--seed', type=int, default=1776,
+                   help="Default 1776 matches bonobo + RERD for ipTM reward parity.")
     p.add_argument('--wandb_name', type=str, default="debug")
     p.add_argument('--wandb_mode', type=str, default="disabled")
     p.add_argument('--wandb_group', type=str, default="")

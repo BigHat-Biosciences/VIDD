@@ -625,7 +625,10 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--student_initialize_pretrain', type=bool, default=True)
 
-    parser.add_argument('--seed', type=int, default=44)
+    parser.add_argument('--seed', type=int, default=1776,
+                        help="Seed for python random / numpy / torch. Default 1776 "
+                             "matches bonobo's eval_compiled_final_iptm.py and RERD's "
+                             "ab_args_file.py so default ipTM rewards are bonobo-parity.")
     parser.add_argument('--wandb_name', type=str, default="debug", help="name for wandb run", required=False)
     parser.add_argument('--wandb_mode', type=str, default="disabled")
     parser.add_argument('--wandb_group', type=str, default="")
