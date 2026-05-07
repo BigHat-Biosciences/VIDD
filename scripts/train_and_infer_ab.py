@@ -127,8 +127,11 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="Comma-separated 0-based CDR positions in antibody_sequence.")
     p.add_argument('--antigen_pdb', type=str, default="")
     p.add_argument('--antigen_chain', type=str, default="A")
-    p.add_argument('--use_template', action='store_true')
-    p.add_argument('--nbb2_weights_dir', type=str, default="")
+    p.add_argument('--template_pdb', type=str, default="",
+                   help="Pre-built combined binder+antigen PDB (binder=H, antigen=A). "
+                        "Required when 'iptm' is in --reward.")
+    p.add_argument('--hotspot', type=str, default="",
+                   help="Comma-separated antigen hotspot residues (e.g. 'A113').")
     p.add_argument('--af_gpu_ids', type=str, default="")
     p.add_argument('--af_params_dir', type=str, default="")
     p.add_argument('--num_recycles', type=int, default=3)

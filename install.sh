@@ -17,8 +17,9 @@
 #   at https://www.pyrosetta.org/ and follow their conda channel instructions.
 #   The antibody path lazy-imports pyrosetta, so --task ab works without it.
 # * AF2 weights — download into $AF_PARAMS_DIR (default ~/.mber/af_params).
-# * NBB2 weights — auto-downloaded on first NanoBodyBuilder2() construction
-#   into $NBB2_WEIGHTS_DIR (default ~/.mber/nbb2_weights).
+# * Combined binder+antigen template PDBs — generate offline via
+#   ProDifEvo-Refinement/scripts/generate_template.py and pass through
+#   --template_pdb. NBB2 is no longer a runtime dependency for VIDD.
 set -euo pipefail
 
 ENV_NAME="${ENV_NAME:-vidd}"
@@ -51,7 +52,7 @@ fi
 conda activate "$ENV_NAME"
 
 # --- conda-only deps -------------------------------------------------------
-# pdbfixer + openmm: required by NanoBodyBuilder2 (only matters when --use_template).
+# pdbfixer + openmm: required by mber-open's AF2 amber relaxation path.
 # hmmer: required by ANARCI for CDR auto-detection.
 echo "[install] conda installing pdbfixer, openmm, hmmer"
 conda install -y -c conda-forge pdbfixer openmm
@@ -95,8 +96,10 @@ Next steps:
 
   # For --task ab (antibody / nanobody design):
   export AF_PARAMS_DIR=\$HOME/.mber/af_params
-  export NBB2_WEIGHTS_DIR=\$HOME/.mber/nbb2_weights
   # download AF2 weights into \$AF_PARAMS_DIR (see mber-open/download_weights.sh).
+  # generate combined binder+antigen template PDBs offline via
+  # ProDifEvo-Refinement/scripts/generate_template.py, then pass them via
+  # --template_pdb (or place at target_proteins/template_<target>.pdb).
   bash scripts/train_and_infer_ab.sh
 
   # For --task protein (existing PDL1/IFNAR2 binder paths):

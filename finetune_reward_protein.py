@@ -650,10 +650,13 @@ if __name__ == '__main__':
     parser.add_argument('--antigen_pdb', type=str, default="",
                         help="Path to antigen PDB; required when 'iptm' is in --reward.")
     parser.add_argument('--antigen_chain', type=str, default="A")
-    parser.add_argument('--use_template', action='store_true',
-                        help="One-shot NBB2-fold the seed antibody and pass it to AF2 as a binder template.")
-    parser.add_argument('--nbb2_weights_dir', type=str, default="",
-                        help="NanoBodyBuilder2 weights dir. Defaults to $NBB2_WEIGHTS_DIR or ~/.mber/nbb2_weights.")
+    parser.add_argument('--template_pdb', type=str, default="",
+                        help="Path to a pre-built combined binder+antigen PDB (binder chain H, antigen chain A). "
+                             "Required when 'iptm' is in --reward. Generate offline via "
+                             "ProDifEvo-Refinement/scripts/generate_template.py.")
+    parser.add_argument('--hotspot', type=str, default="",
+                        help="Comma-separated antigen hotspot residues (e.g. 'A113' or 'A23,A25,A26'). "
+                             "Passed to AF2 prep_binder. Required for bonobo-parity ipTM.")
     parser.add_argument('--af_gpu_ids', type=str, default="",
                         help="Comma-separated JAX device indices for AF2 workers (e.g. '1,2,3'). "
                              "Empty/single → serial single-GPU path.")

@@ -2,11 +2,15 @@
 # Antibody (VHH) train-then-infer driver for VIDD.
 #
 # Multi-GPU layout (e.g. g5.12xlarge: 4× A10G):
-#   GPU 0   → torch (diffusion student/old/pre + NBB2 binder pre-fold)
+#   GPU 0     → torch (diffusion student/old/pre)
 #   GPU 1,2,3 → AF2 prediction workers (--af_gpu_ids 1,2,3)
 #
 # CUDA_VISIBLE_DEVICES must expose all four to the process; JAX preallocation
 # is disabled so JAX doesn't grab all of GPU 0 — we keep that for torch.
+#
+# Templates: pre-built combined binder+antigen PDBs (binder=H, antigen=A) are
+# loaded from $TEMPLATE_DIR/template_<target>.pdb. Generate offline with
+# ProDifEvo-Refinement/scripts/generate_template.py.
 set -euo pipefail
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
@@ -14,8 +18,6 @@ export XLA_PYTHON_CLIENT_PREALLOCATE="${XLA_PYTHON_CLIENT_PREALLOCATE:-false}"
 
 # AF2.3M weights — mirrors mber-open's download_weights.sh default.
 export AF_PARAMS_DIR="${AF_PARAMS_DIR:-$HOME/.mber/af_params}"
-# NBB2 weights for the one-shot template fold.
-export NBB2_WEIGHTS_DIR="${NBB2_WEIGHTS_DIR:-$HOME/.mber/nbb2_weights}"
 
 # VHH (nanobody) seed matching bonobo's framework layout
 # (run_bonobo_af_multigpu.py:256 / run_vsd_bonobo.py:280-285):
@@ -48,9 +50,30 @@ ANTIGEN_CHAIN="${ANTIGEN_CHAIN:-A}"
 BIND_TARGET="${BIND_TARGET:-${TARGET_UPPER}}"
 WANDB_NAME="${WANDB_NAME:-ab_${TARGET_LOWER}_train_then_infer}"
 
+# Pre-built combined template (binder chain H + antigen chain A) and antigen
+# hotspot residues for AF2 prep_binder. Mirrors bonobo's per-target settings.
+TEMPLATE_DIR="${TEMPLATE_DIR:-target_proteins}"
+TEMPLATE_PDB="${TEMPLATE_PDB:-${TEMPLATE_DIR}/template_${TARGET_LOWER}.pdb}"
+declare -A HOTSPOTS=(
+    [pdl1]="A113"
+    [bhrf1]="A60,A61,A63,A71"
+    [il3]="A23,A25,A26,A31,A40,A104"
+    [il20]="A58,A62,A101"
+)
+HOTSPOT="${HOTSPOT:-${HOTSPOTS[$TARGET_LOWER]:-}}"
+
 if [[ ! -f "$ANTIGEN_PDB" ]]; then
     echo "ERROR: antigen PDB not found at $ANTIGEN_PDB" >&2
     echo "       (TARGET=$TARGET, expected target_proteins/${TARGET_UPPER}.pdb)" >&2
+    exit 1
+fi
+if [[ ! -f "$TEMPLATE_PDB" ]]; then
+    echo "ERROR: combined template PDB not found at $TEMPLATE_PDB" >&2
+    echo "       Generate via ProDifEvo-Refinement/scripts/generate_template.py" >&2
+    exit 1
+fi
+if [[ -z "$HOTSPOT" ]]; then
+    echo "ERROR: no baked hotspot for TARGET=$TARGET_LOWER. Set HOTSPOT=... explicitly." >&2
     exit 1
 fi
 
@@ -79,8 +102,8 @@ python "$(dirname "$0")/train_and_infer_ab.py" \
     --use_value_xt \
     --rs_gen_model new \
     --reward_step \
-    --use_template \
+    --template_pdb "$TEMPLATE_PDB" \
+    --hotspot "$HOTSPOT" \
     --num_recycles 3 \
     --af_params_dir "$AF_PARAMS_DIR" \
-    --nbb2_weights_dir "$NBB2_WEIGHTS_DIR" \
     --af_gpu_ids 1,2,3
