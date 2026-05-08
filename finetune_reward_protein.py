@@ -189,7 +189,10 @@ def run(args, rank=None):
     scaler = torch.cuda.amp.GradScaler(enabled=args.use_amp)
 
     if args.resume_train:
-        checkpoint = torch.load(args.resume_train_path)
+        # weights_only=False: our checkpoints embed an argparse.Namespace, which
+        # PyTorch 2.6's default weights_only=True refuses to unpickle. Safe here
+        # because the checkpoint was written by this same training script.
+        checkpoint = torch.load(args.resume_train_path, weights_only=False)
         new_model.load_state_dict(checkpoint['model'])
         optim.load_state_dict(checkpoint['optimizer'])
         scaler.load_state_dict(checkpoint['scaler'])
@@ -521,7 +524,7 @@ def svdd_test(
     for param in final_model.parameters():
         param.requires_grad = False
     if best_model_path is not None:
-        checkpoint = torch.load(best_model_path, map_location=device)
+        checkpoint = torch.load(best_model_path, map_location=device, weights_only=False)
         final_model.load_state_dict(checkpoint['model'])
 
     if args.task == 'ab' and getattr(args, "_ab_template_tokens", None) is None:
@@ -559,7 +562,7 @@ def best_of_n_test(
     for param in final_model.parameters():
         param.requires_grad = False
     if best_model_path is not None:
-        checkpoint = torch.load(best_model_path, map_location=device)
+        checkpoint = torch.load(best_model_path, map_location=device, weights_only=False)
         final_model.load_state_dict(checkpoint['model'])
 
     if args.task == 'ab' and getattr(args, "_ab_template_tokens", None) is None:
