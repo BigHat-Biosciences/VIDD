@@ -1,0 +1,2 @@
+phase,batch_idx,wall_seconds,n_sequences,sec_per_seq,reward_seconds,af_calls,mean_reward,iptm_mean,plddt_mean,cdr_plddt_mean
+best_of_n,0,94.415,20,4.721,93.390,5,0.3431,0.2071,0.7825,0.5778

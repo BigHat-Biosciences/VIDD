@@ -1,0 +1,27 @@
+# Mirrors ProDifEvo-Refinement/.dockerignore. Without this the Layer 6
+# `COPY . /home/` pulls in .git, caches and local run artifacts, which both
+# bloats the image and busts the layer cache on every unrelated local change.
+.git
+.gitignore
+.idea
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+
+# Run logs and intermediate outputs — never want these in the image.
+log/
+**/log/
+output/
+*.log
+
+# Local weights cache from development; the image downloads its own in Layer 5.
+.mber/
+
+# Editor / OS detritus
+.DS_Store
+*.swp
+
+# Smoke-test model checkpoints are large and not evidence; keep them off git.
+smoke_evidence/**/models/
+smoke_out/

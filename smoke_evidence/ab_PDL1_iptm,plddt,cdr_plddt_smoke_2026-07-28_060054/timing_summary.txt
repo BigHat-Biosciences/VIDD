@@ -1,0 +1,21 @@
+=== VIDD antibody run timing summary ===
+Generated: 2026-07-28T06:06:36
+Output dir: output/ab_PDL1_iptm,plddt,cdr_plddt_smoke_2026-07-28_060054
+
+Total run wall time:                341.83 s
+  Train phase wall time:            174.15 s (2 epochs)
+  Inference phase wall time:        94.41 s
+
+Train AF2 reward time:              170.75 s  (48 sequences, 12 calls)
+Inference AF2 reward time:          93.39 s  (20 sequences, 5 calls)
+
+Total sequences scored:             68
+Avg sec/seq scored (train, wall):   3.628
+Avg sec/seq scored (infer, wall):   4.721
+
+Final binders generated:            4
+Sec / final binder (infer wall):    23.604
+Sec / final binder (run wall):      85.458
+
+Per-epoch:                          see timing_train.csv
+Per-batch:                          see timing_inference.csv
