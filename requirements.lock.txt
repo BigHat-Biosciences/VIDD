@@ -1,0 +1,226 @@
+# Exact resolved dependency set of the vidd-antibody image that BUILT CLEAN and
+# PASSED the single-GPU smoke on 2026-07-28 (commit 6a16dbc, image sha b71a8a49001b).
+# Captured with `pip freeze` inside that image.
+#
+# WHY THIS FILE EXISTS. requirements.txt / requirements_ab.txt are largely unpinned,
+# so `docker build` resolves against whatever PyPI serves THAT DAY. Bus #561 records
+# what that costs: cuequivariance shipped 0.11.0 mid-experiment, changed a function
+# signature, and split the BoltzGen fleet into working and broken purely by launch
+# date -- with the added trap that relaunching a HEALTHY arm would have picked up the
+# new version and killed it. A build that worked yesterday is not evidence the same
+# build works today.
+#
+# HOW TO USE IT. This is a reference snapshot, not wired into the Dockerfile -- pinning
+# the build is a deliberate change that deserves its own rebuild and smoke, not a
+# drive-by. Use it to (a) diff against a future build's `pip freeze` when something
+# breaks, and (b) pin exactly if a reproducible rebuild is needed. The load-bearing
+# entries, none of which are pinned in the requirements files:
+#   torch 2.11.0+cu128 / jax 0.5.2 / jaxlib 0.5.1  -- torch and jax coexist in one process
+#   numpy 1.26.4                                   -- MUST stay <2 for evodiff
+#   evodiff @ git+...@33206e99                     -- unpinned git ref upstream; this is
+#                                                     the commit that actually worked
+#
+# Editable install with no version control (mber==1.0.0)
+-e /home/mber-open
+ANARCI==2026.2.13.2
+GridDataFormats==1.2.0
+ImmuneBuilder==1.2
+Jinja2==3.1.6
+MDAnalysis==2.10.0
+MarkupSafe==3.0.3
+OpenMM==8.5.2
+PyYAML==6.0.3
+Pygments==2.20.0
+ablang2==0.2.1
+absl-py==2.5.0
+aiofiles==25.1.0
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+annotated-doc==0.0.4
+annotated-types==0.8.0
+antlr4-python3-runtime==4.9.3
+anyio==4.14.2
+asttokens==3.0.2
+attrs==26.1.0
+beautifulsoup4==4.15.0
+biopython==1.87
+biotite==1.6.0
+biotraj==1.2.2
+bleach==6.4.0
+blosum==2.2.0
+boto3==1.43.57
+botocore==1.43.57
+certifi==2026.7.22
+charset-normalizer==3.4.9
+chex==0.1.90
+click==8.4.2
+colabdesign @ git+https://github.com/sokrypton/ColabDesign.git@d024c4e846fea83c090afcbe89a313eeee8ec01e
+comm==0.2.3
+contourpy==1.3.3
+cuda-bindings==12.9.4
+cuda-pathfinder==1.2.2
+cuda-toolkit==12.8.1
+cycler==0.12.1
+debugpy==1.8.21
+decorator==5.3.1
+deepspeed==0.19.3
+defusedxml==0.7.1
+dm-haiku==0.0.17
+dm-tree==0.1.10
+einops==0.8.2
+etils==1.14.0
+evodiff @ git+https://github.com/microsoft/evodiff.git@33206e99446f799ec11cf6e57d66ffaec837be91
+executing==2.2.1
+fair-esm==2.0.0
+fastjsonschema==2.22.1
+filelock==3.29.0
+flax==0.9.0
+fonttools==4.63.0
+freesasa==2.2.1
+frozenlist==1.8.0
+fsspec==2026.4.0
+h11==0.16.0
+hf-xet==1.5.2
+hjson==3.1.0
+httpcore==1.0.9
+httpx==0.28.1
+huggingface_hub==1.25.1
+humanize==4.16.0
+idna==3.18
+immutabledict==4.3.1
+ipykernel==7.3.0
+ipython==9.15.0
+ipython_pygments_lexers==1.1.1
+ipywidgets==8.1.8
+jax-cuda12-pjrt==0.5.1
+jax-cuda12-plugin==0.5.1
+jax==0.5.2
+jaxlib==0.5.1
+jedi==0.20.0
+jmespath==1.1.0
+jmp==0.0.4
+joblib==1.5.3
+jsonschema-specifications==2025.9.1
+jsonschema==4.26.0
+jupyter_client==8.9.1
+jupyter_core==5.9.1
+jupyterlab_pygments==0.3.0
+jupyterlab_widgets==3.0.16
+kiwisolver==1.5.0
+legacy-cgi @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_legacy-cgi_1761574469/work
+lmdb==2.3.0
+logomaker==0.8.7
+markdown-it-py==4.2.0
+matplotlib-inline==0.2.2
+matplotlib==3.11.1
+mda-xdrlib==0.2.0
+mdtraj==1.11.0
+mdurl==0.1.2
+mistune==3.3.4
+ml_collections==1.1.0
+ml_dtypes==0.5.4
+mmtf-python==1.1.3
+mpmath==1.3.0
+mrcfile==1.5.4
+msgpack==1.2.1
+multidict==6.7.1
+narwhals==2.24.0
+nbclient==0.11.0
+nbconvert==7.17.1
+nbformat==5.10.4
+nest-asyncio2==1.7.2
+nest-asyncio==1.6.0
+networkx==3.6.1
+ninja==1.13.0
+numpy==1.26.4
+nvidia-cublas-cu12==12.8.4.1
+nvidia-cuda-cupti-cu12==12.8.90
+nvidia-cuda-nvcc-cu12==12.9.86
+nvidia-cuda-nvrtc-cu12==12.8.93
+nvidia-cuda-runtime-cu12==12.8.90
+nvidia-cudnn-cu12==9.19.0.56
+nvidia-cufft-cu12==11.3.3.83
+nvidia-cufile-cu12==1.13.1.3
+nvidia-curand-cu12==10.3.9.90
+nvidia-cusolver-cu12==11.7.3.90
+nvidia-cusparse-cu12==12.5.8.93
+nvidia-cusparselt-cu12==0.7.1
+nvidia-nccl-cu12==2.28.9
+nvidia-nvjitlink-cu12==12.8.93
+nvidia-nvshmem-cu12==3.4.5
+nvidia-nvtx-cu12==12.8.90
+omegaconf==2.3.1
+opt_einsum==3.4.0
+optax==0.2.5
+orbax-checkpoint==0.11.24
+packaging==26.0
+pandas==3.0.5
+pandocfilters==1.5.1
+parso==0.8.7
+pdb-tools==2.7.0
+pdbfixer @ file:///home/conda/feedstock_root/build_artifacts/pdbfixer_1775865420242/work
+pexpect==4.9.0
+pillow==12.2.0
+platformdirs==4.11.0
+prompt_toolkit==3.0.53
+propcache==0.5.2
+protobuf==7.35.1
+psutil==7.2.2
+ptyprocess==0.7.0
+pure_eval==0.2.3
+py-cpuinfo==9.0.0
+py3Dmol==2.5.5
+pyarrow==25.0.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+pyzmq==27.1.0
+referencing==0.37.0
+regex==2026.7.19
+requests==2.34.2
+rich==15.0.0
+rotary-embedding-torch==0.9.1
+rpds-py==2026.6.3
+s3transfer==0.19.2
+safetensors==0.8.0
+scikit-learn==1.9.0
+scipy @ file:///home/conda/feedstock_root/build_artifacts/scipy-split_1779873994451/work/dist/scipy-1.17.1-cp311-cp311-linux_x86_64.whl#sha256=fb9bc72e4de1a7def4fdab777e350fa5c075ed66f9ad0ac80fa09bd588a1a625
+seaborn==0.13.2
+sentry-sdk==2.66.1
+sequence-models==1.8.0
+shellingham==1.5.4
+simplejson==4.1.1
+six==1.17.0
+soupsieve==2.9.1
+stack-data==0.6.3
+sympy==1.14.0
+tabulate==0.10.0
+tensorstore==0.1.84
+threadpoolctl==3.6.0
+tinycss2==1.5.1
+tmtools==0.3.0
+tokenizers==0.22.2
+toolz==1.1.0
+torch-geometric==2.8.0.post1
+torch==2.11.0+cu128
+torchaudio==2.11.0+cu128
+torchvision==0.26.0+cu128
+tornado==6.5.7
+tqdm==4.70.0
+traitlets==5.15.1
+transformers==5.14.1
+triton==3.6.0
+typer==0.27.0
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+urllib3==2.7.0
+wandb==0.28.1
+wcwidth==0.8.2
+webencodings==0.5.1
+widgetsnbextension==4.0.15
+wrapt==2.2.2
+xxhash==3.8.1
+yarl==1.24.5
+zipp==4.1.0
