@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 import time
@@ -53,6 +54,7 @@ if _REPO_ROOT not in sys.path:
 
 from evaluations.eval_models import initialize_eval_model
 from finetune_reward_protein import (
+    _ab_kwargs,
     _build_ab_template,
     best_of_n_test,
     run as run_train,
@@ -152,6 +154,25 @@ def _build_argparser() -> argparse.ArgumentParser:
                         "final binders produced). 0 → reuse --batch_size.")
     p.add_argument('--skip_train', action='store_true',
                    help="Run only the inference phase against --test_model_path.")
+    p.add_argument('--inference_seconds', type=int, default=0,
+                   help="If >0, keep running inference batches until this many "
+                        "seconds have elapsed, reusing one loaded model. 0 = the "
+                        "original single-batch behaviour.")
+    p.add_argument('--inference_max_batches', type=int, default=0,
+                   help="Cap on inference batches when --inference_seconds is set. "
+                        "0 = unlimited.")
+    p.add_argument('--no_inference_scoring', action='store_true',
+                   help="Generation = plain sampling from the checkpoint (best-of-1, no AF2 reward "
+                        "model built, no scoring). Writes output_NNNN.csv with sequence/emitted_at/"
+                        "seed/batch_idx only. Quality then comes from the common refold.")
+    p.add_argument('--output_subdir', type=str, default="",
+                   help="Sub-directory under the result folder for this process's generation "
+                        "files (e.g. sampler_gpu0), so parallel samplers never share a file name.")
+    p.add_argument('--train_deadline_seconds', type=float, default=0,
+                   help="Passed to finetune_reward_protein.run: stop training cleanly at a step "
+                        "boundary once this wall time has elapsed (0 = none).")
+    p.add_argument('--train_target_steps', type=int, default=0,
+                   help="Initial pace-monitor target (0 = num_epochs); only ever lowered.")
     p.add_argument('--skip_inference', action='store_true',
                    help="Run only the training phase.")
     return p
@@ -164,7 +185,8 @@ def _resolve_result_save_folder(args) -> str:
     return os.path.join('output', f"{args.task}_{args.reward}_{args.wandb_name}")
 
 
-def _write_output_csv(args, result_save_folder: str, result_dict: dict, reward_metric_names: list) -> None:
+def _write_output_csv(args, result_save_folder: str, result_dict: dict, reward_metric_names: list,
+                      filename: str = "output.csv") -> None:
     """Write per-sample output.csv mirroring RERD's format.
 
     Columns: <reward1>,<reward2>,...,total_reward,diversity,sequence,cdr_indices,framework_fixed.
@@ -181,7 +203,7 @@ def _write_output_csv(args, result_save_folder: str, result_dict: dict, reward_m
     cdr = sorted(int(x) for x in args.cdr_indices.split(",") if x.strip())
     cdr_str = "[" + ", ".join(str(i) for i in cdr) + "]"
 
-    out_path = os.path.join(result_save_folder, "output.csv")
+    out_path = os.path.join(result_save_folder, filename)
     header = list(reward_metric_names) + ["total_reward", "diversity", "sequence", "cdr_indices", "framework_fixed"]
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
@@ -196,7 +218,27 @@ def _write_output_csv(args, result_save_folder: str, result_dict: dict, reward_m
 
 
 def _run_inference(args, result_save_folder: str, device: torch.device) -> dict:
-    """Standalone inference phase: build a fresh eval model + best_of_n_test."""
+    """Inference phase: build the eval model ONCE, then sample until the budget
+    is spent.
+
+    *** WHY THERE IS A LOOP HERE. *** best_of_n_test() is single-shot: one call
+    produces args.inference_batch_size final binders and returns. The wall-clock
+    experiment wants VIDD trained for its published 50 epochs and then generating
+    designs for the REST of the 72h budget, matching how bonobo spends its
+    envelope. Repeating the whole PROCESS to achieve that would re-initialise the
+    diffusion model, AF2 params and the reward workers on every batch -- mBER
+    measured re-initialisation at ~65% of its total cost, so that would throw away
+    most of the budget. Building once and looping the sampling call keeps the
+    expensive setup outside the loop.
+
+    --inference_seconds 0 (default) preserves the original single-batch behaviour
+    exactly, so nothing that called this before changes.
+
+    EACH BATCH WRITES ITS OWN FILES, for two reasons: output.csv is opened "w" so
+    batches sharing a name would overwrite each other, and SageMaker Continuous
+    upload ships closed files -- per-batch outputs stream to S3 as they complete
+    instead of appearing only at the end.
+    """
     best_ckpt = os.path.join(result_save_folder, "models", "model_best.ckpt")
     if not os.path.exists(best_ckpt):
         # Fallback: --test_model_path or last.ckpt.
@@ -213,16 +255,13 @@ def _run_inference(args, result_save_folder: str, device: torch.device) -> dict:
                 )
     print(f"[infer] loading best checkpoint: {best_ckpt}")
 
-    # Fresh AbAF2RewardCal: zeroed _timings, separate from the train phase counters.
+    # Built ONCE, outside the loop. This is the whole point.
     eval_models = initialize_eval_model(args=args, device=device, result_save_folder=result_save_folder)
 
-    # Inference uses --inference_best_of_N if set, else --best_of_N.
     n_best = args.inference_best_of_N or args.best_of_N
-
-    # Truncate at start so the CSV reflects only this invocation. See the
-    # matching change in finetune_reward_protein.run() for timing_train.csv.
-    timing_csv = os.path.join(result_save_folder, "timing_inference.csv")
     reward_metric_names = args.reward.split(",")
+
+    timing_csv = os.path.join(result_save_folder, "timing_inference.csv")
     header = (
         ["phase", "batch_idx", "wall_seconds", "n_sequences", "sec_per_seq",
          "reward_seconds", "af_calls", "mean_reward"]
@@ -231,74 +270,188 @@ def _run_inference(args, result_save_folder: str, device: torch.device) -> dict:
     with open(timing_csv, "w", newline="") as f:
         csv.writer(f).writerow(header)
 
-    n_seqs_before = eval_models._timings["n_sequences"]
-    reward_s_before = eval_models._timings["reward_seconds"]
-    n_calls_before = eval_models._timings["n_calls"]
-    t0 = time.perf_counter()
+    budget_s = float(getattr(args, "inference_seconds", 0) or 0)
+    max_batches = int(getattr(args, "inference_max_batches", 0) or 0)
+    looping = budget_s > 0
+    deadline = time.perf_counter() + budget_s if looping else None
 
-    # Override batch_size for the inference phase if --inference_batch_size set.
-    # The diffusion model reads args.batch_size, and best_of_n_test produces
-    # one final binder per batch slot, so this controls the final binder count.
     saved_batch_size = args.batch_size
     inference_batch_size = args.inference_batch_size or args.batch_size
     if args.inference_batch_size:
         args.batch_size = args.inference_batch_size
 
+    # Where the reward calculator drops per-design PDBs. Set per batch so batches
+    # do not overwrite each other's best_of_{N}_repeat{i}.pdb.
+    base_protein_folder = getattr(eval_models, "gen_protein_folder", None)
+
+    totals = {"wall_seconds": 0.0, "n_sequences": 0, "reward_seconds": 0.0,
+              "af_calls": 0, "n_final_binders": 0, "n_batches": 0}
+    last_result = {}
+    batch_idx = 0
     try:
-        with torch.no_grad():
-            result_dict = best_of_n_test(
-                eval_models=eval_models,
-                args=args,
-                device=device,
-                num_best_of_N=n_best,
-                best_model_path=best_ckpt,
-            )
+        while True:
+            if looping and time.perf_counter() >= deadline:
+                print(f"[infer] budget spent after {batch_idx} batch(es).")
+                break
+            if max_batches and batch_idx >= max_batches:
+                print(f"[infer] reached --inference_max_batches={max_batches}.")
+                break
+
+            batch_idx += 1
+            tag = f"batch_{batch_idx:04d}"
+            if looping and base_protein_folder:
+                eval_models.gen_protein_folder = os.path.join(base_protein_folder, tag)
+                os.makedirs(eval_models.gen_protein_folder, exist_ok=True)
+
+            n_seqs_before = eval_models._timings["n_sequences"]
+            reward_s_before = eval_models._timings["reward_seconds"]
+            n_calls_before = eval_models._timings["n_calls"]
+            t0 = time.perf_counter()
+
+            with torch.no_grad():
+                result_dict = best_of_n_test(
+                    eval_models=eval_models,
+                    args=args,
+                    device=device,
+                    num_best_of_N=n_best,
+                    best_model_path=best_ckpt,
+                )
+
+            wall = time.perf_counter() - t0
+            n_seqs_iter = eval_models._timings["n_sequences"] - n_seqs_before
+            reward_s_iter = eval_models._timings["reward_seconds"] - reward_s_before
+            af_calls_iter = eval_models._timings["n_calls"] - n_calls_before
+            sec_per_seq = wall / max(n_seqs_iter, 1)
+
+            row = [
+                "best_of_n",
+                batch_idx - 1 if not looping else batch_idx,
+                f"{wall:.3f}",
+                n_seqs_iter,
+                f"{sec_per_seq:.3f}",
+                f"{reward_s_iter:.3f}",
+                af_calls_iter,
+                f"{float(result_dict.get('final_mean_reward_best_of_N', float('nan'))):.4f}",
+            ]
+            for m in reward_metric_names:
+                v = result_dict.get(f"{m}_mean_reward")
+                row.append(f"{float(v):.4f}" if v is not None else "nan")
+            with open(timing_csv, "a", newline="") as f:
+                csv.writer(f).writerow(row)
+
+            # Per-batch CSV when looping so nothing is overwritten and each file
+            # closes (and therefore uploads) as soon as its batch finishes.
+            fname = f"output_{batch_idx:04d}.csv" if looping else "output.csv"
+            _write_output_csv(args, result_save_folder, result_dict,
+                              reward_metric_names, filename=fname)
+
+            totals["wall_seconds"] += wall
+            totals["n_sequences"] += n_seqs_iter
+            totals["reward_seconds"] += reward_s_iter
+            totals["af_calls"] += af_calls_iter
+            totals["n_final_binders"] += inference_batch_size
+            totals["n_batches"] = batch_idx
+            last_result = result_dict
+
+            if not looping:
+                break
+            print(f"[infer] batch {batch_idx} done in {wall:.0f}s; "
+                  f"{max(deadline - time.perf_counter(), 0):.0f}s of budget left.")
     finally:
         args.batch_size = saved_batch_size
+        if base_protein_folder:
+            eval_models.gen_protein_folder = base_protein_folder
 
-    wall = time.perf_counter() - t0
-    n_seqs_iter = eval_models._timings["n_sequences"] - n_seqs_before
-    reward_s_iter = eval_models._timings["reward_seconds"] - reward_s_before
-    af_calls_iter = eval_models._timings["n_calls"] - n_calls_before
-    sec_per_seq = wall / max(n_seqs_iter, 1)
+    totals["result_dict"] = last_result
+    totals["eval_models_timings"] = dict(eval_models._timings)
+    return totals
 
-    row = [
-        "best_of_n",
-        0,
-        f"{wall:.3f}",
-        n_seqs_iter,
-        f"{sec_per_seq:.3f}",
-        f"{reward_s_iter:.3f}",
-        af_calls_iter,
-        f"{float(result_dict.get('final_mean_reward_best_of_N', float('nan'))):.4f}",
-    ]
-    for m in reward_metric_names:
-        v = result_dict.get(f"{m}_mean_reward")
-        row.append(f"{float(v):.4f}" if v is not None else "nan")
-    with open(timing_csv, "a", newline="") as f:
-        csv.writer(f).writerow(row)
 
-    # Per-sample output.csv — one row per final binder, columns mirror RERD's
-    # output.csv (per-reward scores, diversity, sequence, cdr_indices,
-    # framework_fixed). Reward column order follows --reward.
-    _write_output_csv(args, result_save_folder, result_dict, reward_metric_names)
+def _run_sampling_only(args, result_save_folder: str, device: torch.device) -> dict:
+    """Generation as SAMPLING, not scoring (NeurIPS26 camera-ready, 2026-10).
 
-    # Final binders generated by THIS inference phase. best_of_n_test saves
-    # one PDB per batch slot named f"best_of_{best_of_N}_repeat{i}.pdb", so we
-    # use the effective inference batch size as the authoritative count
-    # (rather than counting PDBs on disk, which could include stale files
-    # from a previous run with a larger batch).
-    n_final_binders = inference_batch_size
+    The published VIDD reports plain samples from the distilled model; best-of-N is a
+    baseline it beats. So this phase loads the checkpoint once, draws
+    --inference_batch_size sequences per batch with generate_xt_list(num_best_of_N=1)
+    -- which never touches a reward model -- and streams one CLOSED output_NNNN.csv
+    per batch (columns: sequence, emitted_at, seed, batch_idx, cdr_indices,
+    framework_fixed). No AF2 reward model is built at all; the common refold scores a
+    uniform sample afterwards. Several processes can run in parallel, one per GPU,
+    each with its own --seed and --output_subdir.
+    """
+    import datetime as _dt
+    from finetune_reward_protein import set_seed
+    from models.gen_models import generate_xt_list
 
-    return {
-        "wall_seconds": wall,
-        "n_sequences": n_seqs_iter,
-        "reward_seconds": reward_s_iter,
-        "af_calls": af_calls_iter,
-        "n_final_binders": n_final_binders,
-        "result_dict": result_dict,
-        "eval_models_timings": dict(eval_models._timings),
-    }
+    best_ckpt = args.test_model_path
+    if not best_ckpt or not os.path.exists(best_ckpt):
+        cand = os.path.join(result_save_folder, "models", "model_best.ckpt")
+        if not os.path.exists(cand):
+            raise FileNotFoundError(f"--test_model_path not found and no {cand}")
+        best_ckpt = cand
+    out_dir = os.path.join(result_save_folder, args.output_subdir) if args.output_subdir else result_save_folder
+    os.makedirs(out_dir, exist_ok=True)
+    set_seed(args.seed)
+    print(f"[sample] checkpoint={best_ckpt} seed={args.seed} out_dir={out_dir} batch={args.inference_batch_size or args.batch_size}")
+
+    model = ProteinGenDiffusion(args).to(device)
+    model.eval()
+    for prm in model.parameters():
+        prm.requires_grad = False
+    ckpt = torch.load(best_ckpt, map_location=device, weights_only=False)
+    model.load_state_dict(ckpt["model"])
+    args.gen_len = len(args.antibody_sequence)
+    args._ab_template_tokens, args._ab_cdr_indices = _build_ab_template(args, model, device)
+    cdr = sorted(int(x) for x in args.cdr_indices.split(",") if x.strip())
+    cdr_str = "[" + ", ".join(str(i) for i in cdr) + "]"
+
+    saved_batch_size = args.batch_size
+    if args.inference_batch_size:
+        args.batch_size = args.inference_batch_size
+    budget_s = float(getattr(args, "inference_seconds", 0) or 0)
+    max_batches = int(getattr(args, "inference_max_batches", 0) or 0)
+    deadline = time.perf_counter() + budget_s if budget_s > 0 else None
+    _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
+    totals = {"wall_seconds": 0.0, "n_sequences": 0, "n_batches": 0, "reward_seconds": 0.0, "af_calls": 0, "n_final_binders": 0}
+    t_start = time.perf_counter(); batch_idx = 0
+    try:
+        with torch.no_grad():
+            while True:
+                if deadline is not None and time.perf_counter() >= deadline:
+                    print(f"[sample] budget spent after {batch_idx} batch(es)."); break
+                if max_batches and batch_idx >= max_batches:
+                    print(f"[sample] reached --inference_max_batches={max_batches}."); break
+                if deadline is None and batch_idx >= 1:
+                    break
+                t0 = time.perf_counter()
+                sample = generate_xt_list(args=args, generative_model=model, device=device,
+                                          seq_len=args.gen_len, unmask_K=args.unmask_K,
+                                          reward_model=None, num_best_of_N=1, **_ab_kwargs(args))[0]
+                rows = ["".join(_ALPHABET[t] if 0 <= t < len(_ALPHABET) else "X" for t in r)
+                        for r in sample.detach().cpu().numpy()]
+                batch_idx += 1
+                emitted = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+                tmp = os.path.join(out_dir, f"output_{batch_idx:04d}.csv.tmp")
+                with open(tmp, "w", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(["sequence", "emitted_at", "seed", "batch_idx", "cdr_indices", "framework_fixed"])
+                    for seq in rows:
+                        w.writerow([seq, emitted, args.seed, batch_idx, cdr_str, True])
+                os.replace(tmp, os.path.join(out_dir, f"output_{batch_idx:04d}.csv"))   # closed file per batch
+                dt_b = time.perf_counter() - t0
+                totals["n_sequences"] += len(rows); totals["n_batches"] = batch_idx; totals["n_final_binders"] += len(rows)
+                if batch_idx <= 3 or batch_idx % 50 == 0:
+                    print(f"[sample] batch {batch_idx}: {len(rows)} seqs in {dt_b:.1f}s ({len(rows)/max(dt_b,1e-6):.0f} seq/s)", flush=True)
+    finally:
+        args.batch_size = saved_batch_size
+    totals["wall_seconds"] = time.perf_counter() - t_start
+    with open(os.path.join(out_dir, "sampling_summary.json"), "w") as f:
+        json.dump({**totals, "seed": args.seed, "checkpoint": best_ckpt,
+                   "inference_batch_size": args.inference_batch_size or saved_batch_size,
+                   "seq_per_gpu_hour": totals["n_sequences"] / max(totals["wall_seconds"] / 3600, 1e-9)}, f, indent=1)
+    print(f"[sample] done: {totals['n_sequences']} sequences in {totals['n_batches']} batches, {totals['wall_seconds']:.0f}s "
+          f"({totals['n_sequences'] / max(totals['wall_seconds']/3600, 1e-9):.0f} seq/GPU-h)")
+    return totals
 
 
 def _read_train_totals(result_save_folder: str) -> dict:
@@ -403,7 +556,7 @@ def main() -> None:
     # ---- Phase 2: inference ----
     infer_totals = {"wall_seconds": 0.0, "n_sequences": 0, "reward_seconds": 0.0, "af_calls": 0}
     if not args.skip_inference:
-        print("[orchestrator] === Phase 2: inference (best-of-N) ===")
+        print("[orchestrator] === Phase 2: " + ("sampling only (no scoring)" if args.no_inference_scoring else "inference (best-of-N)") + " ===")
         # Pin torch to cuda:0 explicitly; JAX shifts current_device when
         # dispatching AF2 workers to cuda:N. See finetune_reward_protein.run().
         if torch.cuda.is_available():
@@ -411,7 +564,10 @@ def main() -> None:
             device = torch.device("cuda:0")
         else:
             device = torch.device("cpu")
-        infer_totals = _run_inference(args, result_save_folder, device)
+        if args.no_inference_scoring:
+            infer_totals = _run_sampling_only(args, result_save_folder, device)
+        else:
+            infer_totals = _run_inference(args, result_save_folder, device)
     else:
         print("[orchestrator] --skip_inference set; skipping inference phase.")
 

@@ -1,5 +1,6 @@
 import argparse
 import csv
+import json
 import time
 import wandb
 import numpy as np
@@ -222,8 +223,50 @@ def run(args, rank=None):
     with open(timing_csv_path, "w", newline="") as f:
         csv.writer(f).writerow(timing_header)
 
+    # ---- wall-clock training budget + pace monitor (NeurIPS26 camera-ready, 2026-10) ----
+    # --train_deadline_seconds: stop cleanly at an epoch (= one roll-out batch + one
+    # optimizer step) boundary once this much wall time has elapsed since run() began.
+    # Pace rule: after PACE_AFTER steps (past JIT warm-up) and then every PACE_EVERY
+    # steps, project the step count reachable by the deadline from the measured
+    # post-warm-up rate; if it is below the target, lower the target to the largest
+    # multiple of PACE_DECREMENT that fits. Targets are only ever lowered. Everything
+    # is logged and written to run_manifest.json next to timing_train.csv.
+    train_t0 = time.perf_counter()
+    deadline_s = float(getattr(args, "train_deadline_seconds", 0) or 0)
+    target_steps = int(getattr(args, "train_target_steps", 0) or args.num_epochs)
+    PACE_AFTER, PACE_EVERY, PACE_DECREMENT = 200, 500, 1000
+    pace_t_after = None
+    target_history = [{"step": 0, "target": target_steps, "why": "initial"}]
+    stop_reason = "completed"
+    manifest_path = os.path.join(result_save_folder, "run_manifest.json")
+
+    def _write_manifest(final_step):
+        with open(manifest_path, "w") as mf:
+            json.dump({
+                "final_step": final_step, "stop_reason": stop_reason,
+                "target_steps": target_steps, "target_history": target_history,
+                "train_deadline_seconds": deadline_s,
+                "train_elapsed_seconds": round(time.perf_counter() - train_t0, 1),
+                "num_epochs_requested": args.num_epochs, "batch_size": args.batch_size,
+                "best_of_N": args.best_of_N, "loss_func": args.loss_func,
+                "reward_norm": args.reward_norm, "old_roll_in": bool(args.old_roll_in),
+                "gkd_lmbda": args.gkd_lmbda, "target_update_interval": args.target_update_interval,
+                "learning_rate": args.learning_rate, "seed": args.seed,
+                "af_gpu_ids": args.af_gpu_ids, "best_model_path": best_model_path,
+            }, mf, indent=1)
+
     epoch_bar = tqdm(range(args.num_epochs), desc="training epochs")
+    epoch_num = -1
     for epoch_num in epoch_bar:
+        _elapsed = time.perf_counter() - train_t0
+        if deadline_s and _elapsed >= deadline_s:
+            stop_reason = "deadline"
+            print(f"[pace] training deadline ({deadline_s:.0f}s) reached before step {epoch_num}; stopping cleanly at step boundary.")
+            break
+        if epoch_num >= target_steps:
+            stop_reason = "target"
+            print(f"[pace] reached target of {target_steps} steps; stopping.")
+            break
         epoch_t0 = time.perf_counter()
         n_seqs_before = (
             eval_models._timings["n_sequences"]
@@ -506,6 +549,32 @@ def run(args, rank=None):
                 postfix[m] = f"{float(v):.3f}"
         epoch_bar.set_postfix(postfix)
 
+        # ---- pace monitor ----
+        done = epoch_num + 1
+        _now = time.perf_counter() - train_t0
+        if done == PACE_AFTER:
+            pace_t_after = _now
+        if deadline_s and done >= PACE_AFTER and (done == PACE_AFTER or done % PACE_EVERY == 0):
+            if done > PACE_AFTER and pace_t_after is not None and _now > pace_t_after:
+                rate = (done - PACE_AFTER) / (_now - pace_t_after)          # steps/s, post warm-up
+            else:
+                rate = done / max(_now, 1e-6)
+            projected = done + rate * max(deadline_s - _now, 0.0)
+            fits = int(projected // PACE_DECREMENT) * PACE_DECREMENT
+            print(f"[pace] step {done}: {rate*3600:.1f} steps/h, projected {projected:.0f} by the deadline, target {target_steps}")
+            if fits < target_steps:
+                new_target = max(fits, done)
+                target_history.append({"step": done, "target": new_target, "why": f"projected {projected:.0f} < {target_steps}"})
+                print(f"[pace] lowering target {target_steps} -> {new_target}")
+                target_steps = new_target
+            _write_manifest(done)
+        if done % 50 == 0:
+            _write_manifest(done)
+
+    final_step = epoch_num + 1 if stop_reason == "completed" else epoch_num
+    _write_manifest(final_step)
+    print(f"[pace] training finished: stop_reason={stop_reason} final_step={final_step} target={target_steps} elapsed={time.perf_counter() - train_t0:.0f}s")
+
     wandb.log({
         "final_mean_reward": best_rewards_eval,
         "final_std_reward": best_reward_std,
@@ -653,6 +722,10 @@ if __name__ == '__main__':
     parser.add_argument('--eps', type=float, default=1e-5)
     parser.add_argument('--target_update_interval', type=int, default=20)
     parser.add_argument('--num_epochs', type=int, default=10000)
+    parser.add_argument('--train_deadline_seconds', type=float, default=0,
+                        help="Stop training cleanly at a step boundary once this wall time has elapsed (0 = no deadline).")
+    parser.add_argument('--train_target_steps', type=int, default=0,
+                        help="Initial step target for the pace monitor (0 = num_epochs). Only ever lowered at run time.")
     parser.add_argument('--grad_clip', type=float, default=1.0)
     parser.add_argument('--save_every_n_epochs', type=int, default=50)
 
