@@ -173,6 +173,11 @@ def _build_argparser() -> argparse.ArgumentParser:
                         "boundary once this wall time has elapsed (0 = none).")
     p.add_argument('--train_target_steps', type=int, default=0,
                    help="Initial pace-monitor target (0 = num_epochs); only ever lowered.")
+    p.add_argument('--pace_decrement', type=int, default=1000,
+                   help="Pace monitor lowers the step target to a multiple of this (default 1000).")
+    p.add_argument('--pace_step_offset', type=int, default=0,
+                   help="Steps completed before a --resume_train; the rounding applies to offset+steps "
+                        "so a resumed run still ends on a round TOTAL.")
     p.add_argument('--skip_inference', action='store_true',
                    help="Run only the training phase.")
     return p

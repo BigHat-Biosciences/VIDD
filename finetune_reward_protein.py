@@ -197,6 +197,16 @@ def run(args, rank=None):
         new_model.load_state_dict(checkpoint['model'])
         optim.load_state_dict(checkpoint['optimizer'])
         scaler.load_state_dict(checkpoint['scaler'])
+        # Exact continuation (2026-10-25): the roll-in/target policy (old_model) is not part of the
+        # checkpoint; at a checkpoint it is at most target_update_interval steps behind the policy,
+        # so the resumed policy is the closest available state for it. The running best reward is
+        # restored so model_best.ckpt is only written when the continuation beats the base run.
+        old_model.load_state_dict(new_model.state_dict())
+        _resumed_epoch = int(checkpoint.get('epoch', -1))
+        _resumed_best = float(checkpoint.get('best_reward', float('-inf')))
+        print(f"[resume] loaded {args.resume_train_path}: checkpoint epoch={_resumed_epoch} "
+              f"(continuing at step {_resumed_epoch + 1}), best_reward={_resumed_best:.4f}; "
+              f"optimizer+scaler restored, old_model synced to the resumed policy", flush=True)
 
     # # initialize dataset length
     # reference_dataset = UniRefDataset(args.uniref_path,'rtest', structure=False, max_len=args.gen_len)
@@ -204,6 +214,8 @@ def run(args, rank=None):
 
     best_plddt_reward = float('-inf')
     best_rewards_eval, best_reward_std, best_diversity = float('-inf'), float('-inf'), float('-inf')
+    if args.resume_train:
+        best_rewards_eval = _resumed_best
     best_model_path = os.path.join(save_folders_model, f'model_best.ckpt')
 
     # Per-epoch timing CSV. Mirrors ProDifEvo-Refinement's evodiff/generate_antibody.py
@@ -234,7 +246,11 @@ def run(args, rank=None):
     train_t0 = time.perf_counter()
     deadline_s = float(getattr(args, "train_deadline_seconds", 0) or 0)
     target_steps = int(getattr(args, "train_target_steps", 0) or args.num_epochs)
-    PACE_AFTER, PACE_EVERY, PACE_DECREMENT = 200, 500, 1000
+    PACE_AFTER, PACE_EVERY = 200, 500
+    PACE_DECREMENT = int(getattr(args, "pace_decrement", 0) or 1000)
+    # Steps completed before a resume: the rounding applies to the TOTAL step count
+    # (offset + steps of this process), so a resumed run still lands on a round total.
+    pace_offset = int(getattr(args, "pace_step_offset", 0) or 0)
     pace_t_after = None
     target_history = [{"step": 0, "target": target_steps, "why": "initial"}]
     stop_reason = "completed"
@@ -245,6 +261,9 @@ def run(args, rank=None):
             json.dump({
                 "final_step": final_step, "stop_reason": stop_reason,
                 "target_steps": target_steps, "target_history": target_history,
+                "pace_decrement": PACE_DECREMENT, "pace_step_offset": pace_offset,
+                "total_steps": pace_offset + final_step,
+                "resumed_from": (getattr(args, "resume_train_path", "") or "") if getattr(args, "resume_train", False) else "",
                 "train_deadline_seconds": deadline_s,
                 "train_elapsed_seconds": round(time.perf_counter() - train_t0, 1),
                 "num_epochs_requested": args.num_epochs, "batch_size": args.batch_size,
@@ -560,8 +579,10 @@ def run(args, rank=None):
             else:
                 rate = done / max(_now, 1e-6)
             projected = done + rate * max(deadline_s - _now, 0.0)
-            fits = int(projected // PACE_DECREMENT) * PACE_DECREMENT
-            print(f"[pace] step {done}: {rate*3600:.1f} steps/h, projected {projected:.0f} by the deadline, target {target_steps}")
+            fits = int((pace_offset + projected) // PACE_DECREMENT) * PACE_DECREMENT - pace_offset
+            print(f"[pace] step {done} (total {pace_offset + done}): {rate*3600:.1f} steps/h, projected {projected:.0f} "
+                  f"(total {pace_offset + projected:.0f}) by the deadline, target {target_steps} (total {pace_offset + target_steps}), "
+                  f"rounding {PACE_DECREMENT}")
             if fits < target_steps:
                 new_target = max(fits, done)
                 target_history.append({"step": done, "target": new_target, "why": f"projected {projected:.0f} < {target_steps}"})
@@ -772,6 +793,10 @@ if __name__ == '__main__':
     parser.add_argument('--best_of_n_baseline', action='store_true')
     parser.add_argument('--resume_train', action='store_true')
     parser.add_argument('--resume_train_path', type=str, default="")
+    parser.add_argument('--pace_decrement', type=int, default=1000,
+                        help="Pace monitor lowers the step target to a multiple of this (default 1000).")
+    parser.add_argument('--pace_step_offset', type=int, default=0,
+                        help="Steps completed before a --resume_train; rounding applies to offset+steps.")
 
     parser.add_argument('--rs_gen_model', default='pre')
     parser.add_argument('--old_roll_in', action='store_true')
